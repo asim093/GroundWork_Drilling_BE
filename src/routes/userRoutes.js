@@ -11,6 +11,7 @@ import { validate } from '../middleware/validate.js';
 import { authenticate } from '../middleware/auth.js';
 import { authorize } from '../middleware/authorize.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { EMPLOYEE_TYPES } from '../config/masterData.js';
 
 const router = Router();
 
@@ -23,6 +24,10 @@ router.get(
     .optional()
     .isIn(['pending', 'active'])
     .withMessage('Status must be pending or active'),
+  query('employeeType')
+    .optional()
+    .isIn(EMPLOYEE_TYPES)
+    .withMessage('Invalid employee type'),
   query('sort')
     .optional()
     .isIn(['name', 'email', 'createdAt'])
@@ -37,6 +42,11 @@ router.post(
   body('name').trim().notEmpty().withMessage('Name is required'),
   body('email').isEmail().withMessage('A valid email is required'),
   body('phone').optional().trim(),
+  body('employeeType')
+    .optional({ values: 'falsy' })
+    .isIn(EMPLOYEE_TYPES)
+    .withMessage('Invalid employee type'),
+  body('employeeCategory').optional({ nullable: true }).trim(),
   validate,
   asyncHandler(createUser)
 );
@@ -55,6 +65,11 @@ router.patch(
   body('email').optional().isEmail().withMessage('A valid email is required'),
   body('active').optional().isBoolean().withMessage('Active must be true or false'),
   body('phone').optional({ nullable: true }).trim(),
+  body('employeeType')
+    .optional({ nullable: true, checkFalsy: true })
+    .isIn(EMPLOYEE_TYPES)
+    .withMessage('Invalid employee type'),
+  body('employeeCategory').optional({ nullable: true }).trim(),
   validate,
   asyncHandler(updateUser)
 );

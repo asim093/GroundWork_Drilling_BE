@@ -56,6 +56,7 @@ router.post(
   body('jobLocation').optional().trim(),
   body('clientJobNumber').optional().trim(),
   body('drillType').optional().trim(),
+  body('rigNumber').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid rig number'),
   body('scheduledDate')
     .optional({ values: 'falsy' })
     .isISO8601()
@@ -80,6 +81,7 @@ router.patch(
   body('jobLocation').optional({ nullable: true }).trim(),
   body('clientJobNumber').optional({ nullable: true }).trim(),
   body('drillType').optional({ nullable: true }).trim(),
+  body('rigNumber').optional({ nullable: true, checkFalsy: true }).isMongoId().withMessage('Invalid rig number'),
   body('scheduledDate')
     .optional({ values: 'falsy' })
     .isISO8601()

@@ -30,11 +30,97 @@ export const resolveDateRange = (query) => {
   };
 };
 
-export const bonusEligibility = (recoveryPercent) => {
+export const DEFAULT_RECOVERY_THRESHOLD = 85;
+
+export const computeRecoveryPercent = (entry) => {
+  const drilled = entry?.metersDrilled;
+  const recovered = entry?.metersRecovered;
+
+  if (!drilled || drilled <= 0) {
+    return null;
+  }
+  if (recovered === null || recovered === undefined) {
+    return null;
+  }
+  return round2((recovered / drilled) * 100);
+};
+
+export const bonusEligibility = (recoveryPercent, threshold = DEFAULT_RECOVERY_THRESHOLD) => {
   if (recoveryPercent === null || recoveryPercent === undefined) {
     return 'not-available';
   }
-  return recoveryPercent >= 85 ? 'eligible' : 'not-eligible';
+  return recoveryPercent >= threshold ? 'eligible' : 'not-eligible';
+};
+
+export const computeUserBonus = (entries, employeeType, bonusConfig) => {
+  const threshold = bonusConfig?.recoveryThreshold ?? DEFAULT_RECOVERY_THRESHOLD;
+
+  const eligibleMeters = round2(
+    entries.reduce((sum, entry) => {
+      const recoveryPercent = computeRecoveryPercent(entry);
+      if (recoveryPercent !== null && recoveryPercent >= threshold) {
+        return sum + (entry.metersDrilled || 0);
+      }
+      return sum;
+    }, 0)
+  );
+
+  if (!employeeType) {
+    return { eligibleMeters, amount: null, note: 'No employee type is set for this user' };
+  }
+
+  const table = (bonusConfig?.tierTables || []).find(
+    (tier) => tier.employeeType === employeeType
+  );
+  const bands = [...(table?.bands || [])].sort((a, b) => a.fromMeters - b.fromMeters);
+
+  if (bands.length === 0) {
+    return {
+      eligibleMeters,
+      amount: null,
+      note: `No bonus tier table is configured for ${employeeType}`
+    };
+  }
+
+  if (eligibleMeters <= 0) {
+    return { eligibleMeters: 0, amount: 0, note: 'No recovery-eligible meters in this period' };
+  }
+
+  let matched = bands.find(
+    (band) => eligibleMeters >= band.fromMeters && eligibleMeters <= band.toMeters
+  );
+  let aboveTopBand = false;
+
+  if (!matched) {
+    const topBand = bands[bands.length - 1];
+    if (eligibleMeters > topBand.toMeters) {
+      matched = topBand;
+      aboveTopBand = true;
+    }
+  }
+
+  if (!matched) {
+    return {
+      eligibleMeters,
+      amount: null,
+      note: 'Eligible meters fall outside every configured band'
+    };
+  }
+
+  const amount =
+    matched.rateType === 'flat' ? matched.value : round2(eligibleMeters * matched.value);
+
+  return {
+    eligibleMeters,
+    amount,
+    rateType: matched.rateType,
+    rate: matched.value,
+    band: { fromMeters: matched.fromMeters, toMeters: matched.toMeters },
+    aboveTopBand,
+    note: aboveTopBand
+      ? 'Eligible meters exceed the highest band; the top band was applied'
+      : null
+  };
 };
 
 export const computeSchedulingRows = (jobs, entries) =>
@@ -78,8 +164,8 @@ export const computeSchedulingRows = (jobs, entries) =>
     };
   });
 
-export const buildTotals = (entries) => {
-  const totals = { hoursOnSite: 0, standbyHours: 0, otherHours: 0 };
+export const buildTotals = (entries, threshold = DEFAULT_RECOVERY_THRESHOLD) => {
+  const totals = { hoursOnSite: 0, standbyHours: 0, otherHours: 0, metersDrilled: 0, metersRecovered: 0 };
   const consumableMap = new Map();
   const bonus = { eligible: 0, 'not-eligible': 0, 'not-available': 0 };
 
@@ -87,6 +173,8 @@ export const buildTotals = (entries) => {
     totals.hoursOnSite += entry.hoursOnSite || 0;
     totals.standbyHours += entry.standbyHours || 0;
     totals.otherHours += entry.otherHours || 0;
+    totals.metersDrilled += entry.metersDrilled || 0;
+    totals.metersRecovered += entry.metersRecovered || 0;
 
     (entry.consumables || []).forEach((item) => {
       if (!item.itemName) {
@@ -96,7 +184,7 @@ export const buildTotals = (entries) => {
       consumableMap.set(item.itemName, current + (item.qtyUsed || 0));
     });
 
-    bonus[bonusEligibility(entry.recoveryPercent)] += 1;
+    bonus[bonusEligibility(computeRecoveryPercent(entry), threshold)] += 1;
   });
 
   return {
@@ -104,7 +192,9 @@ export const buildTotals = (entries) => {
     totals: {
       hoursOnSite: round2(totals.hoursOnSite),
       standbyHours: round2(totals.standbyHours),
-      otherHours: round2(totals.otherHours)
+      otherHours: round2(totals.otherHours),
+      metersDrilled: round2(totals.metersDrilled),
+      metersRecovered: round2(totals.metersRecovered)
     },
     consumables: [...consumableMap.entries()]
       .map(([itemName, qtyUsed]) => ({ itemName, qtyUsed: round2(qtyUsed) }))
@@ -113,20 +203,26 @@ export const buildTotals = (entries) => {
   };
 };
 
-export const buildEntryBreakdown = (entries) =>
-  entries.map((entry) => ({
-    entryId: entry._id,
-    date: entry.date,
-    jobNumber: entry.jobId?.jobNumber || null,
-    clientName: entry.jobId?.clientName || null,
-    operator: entry.userId?.name || null,
-    recoveryPercent: entry.recoveryPercent ?? null,
-    eligibility: bonusEligibility(entry.recoveryPercent),
-    hoursOnSite: entry.hoursOnSite ?? null,
-    standbyHours: entry.standbyHours ?? null
-  }));
+export const buildEntryBreakdown = (entries, threshold = DEFAULT_RECOVERY_THRESHOLD) =>
+  entries.map((entry) => {
+    const recoveryPercent = computeRecoveryPercent(entry);
+    return {
+      entryId: entry._id,
+      date: entry.date,
+      shift: entry.shift || null,
+      jobNumber: entry.jobId?.jobNumber || null,
+      clientName: entry.jobId?.clientName || null,
+      operator: entry.userId?.name || null,
+      metersDrilled: entry.metersDrilled ?? null,
+      metersRecovered: entry.metersRecovered ?? null,
+      recoveryPercent,
+      eligibility: bonusEligibility(recoveryPercent, threshold),
+      hoursOnSite: entry.hoursOnSite ?? null,
+      standbyHours: entry.standbyHours ?? null
+    };
+  });
 
-export const buildGroups = (entries, groupBy) => {
+export const buildGroups = (entries, groupBy, threshold, bonusConfig) => {
   const groups = new Map();
 
   entries.forEach((entry) => {
@@ -140,12 +236,28 @@ export const buildGroups = (entries, groupBy) => {
           : 'Unknown job';
 
     if (!groups.has(key)) {
-      groups.set(key, { key, label, entries: [] });
+      groups.set(key, {
+        key,
+        label,
+        employeeType: groupBy === 'user' ? source?.employeeType || null : null,
+        entries: []
+      });
     }
     groups.get(key).entries.push(entry);
   });
 
   return [...groups.values()]
-    .map((group) => ({ key: group.key, label: group.label, ...buildTotals(group.entries) }))
+    .map((group) => {
+      const result = {
+        key: group.key,
+        label: group.label,
+        ...buildTotals(group.entries, threshold)
+      };
+      if (groupBy === 'user') {
+        result.employeeType = group.employeeType;
+        result.bonus = computeUserBonus(group.entries, group.employeeType, bonusConfig);
+      }
+      return result;
+    })
     .sort((a, b) => a.label.localeCompare(b.label));
 };

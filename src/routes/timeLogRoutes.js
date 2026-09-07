@@ -26,7 +26,8 @@ const NUMBER_FIELDS = [
   'mileageStart',
   'mileageEnd',
   'mileageTotal',
-  'recoveryPercent'
+  'metersDrilled',
+  'metersRecovered'
 ];
 
 const listValidators = [
@@ -42,10 +43,14 @@ const listValidators = [
 
 const entryBodyValidators = [
   body('date').optional().isISO8601().withMessage('Date must be a valid date'),
+  body('shift')
+    .optional({ nullable: true, checkFalsy: true })
+    .isIn(['Day', 'Night'])
+    .withMessage('Shift must be Day or Night'),
   ...NUMBER_FIELDS.map((field) =>
     body(field)
       .optional({ nullable: true })
-      .isFloat()
+      .isFloat({ min: 0 })
       .withMessage(`${field} must be a number`)
   ),
   body('activityLines').optional().isArray().withMessage('Activity lines must be a list'),

@@ -1,5 +1,6 @@
 import TimeLogEntry from '../models/TimeLogEntry.js';
 import Job from '../models/Job.js';
+import BonusConfig from '../models/BonusConfig.js';
 import { buildListOptions, buildPaginationMeta } from '../utils/listQuery.js';
 import {
   resolveDateRange,
@@ -14,10 +15,13 @@ import {
 
 const SORTABLE_FIELDS = ['date', 'createdAt', 'updatedAt', 'status'];
 const JOB_PROJECTION = 'jobNumber clientName jobLocation clientJobNumber drillType scheduledDate status';
-const USER_PROJECTION = 'name email role';
+const USER_PROJECTION = 'name email role employeeType employeeCategory';
 
 const EDITABLE_FIELDS = [
   'date',
+  'shift',
+  'metersDrilled',
+  'metersRecovered',
   'timeIn',
   'timeOut',
   'assistantName',
@@ -32,7 +36,6 @@ const EDITABLE_FIELDS = [
   'mileageEnd',
   'mileageTotal',
   'wellTag',
-  'recoveryPercent',
   'activityLines',
   'fuel',
   'consumables'
@@ -238,23 +241,28 @@ export const listScheduling = async (req, res) => {
 const fetchSubmittedEntries = (from, to) =>
   TimeLogEntry.find({ status: 'submitted', date: { $gte: from, $lte: to } })
     .populate('jobId', 'jobNumber clientName')
-    .populate('userId', 'name email')
+    .populate('userId', 'name email employeeType employeeCategory')
     .lean();
 
 export const reportsSummary = async (req, res) => {
   const { from, to } = resolveDateRange(req.query);
-  const entries = await fetchSubmittedEntries(from, to);
+  const [entries, bonusConfig] = await Promise.all([
+    fetchSubmittedEntries(from, to),
+    BonusConfig.getSingleton()
+  ]);
+  const threshold = bonusConfig.recoveryThreshold;
 
   const data = {
     from,
     to,
-    ...buildTotals(entries),
-    entries: buildEntryBreakdown(entries)
+    recoveryThreshold: threshold,
+    ...buildTotals(entries, threshold),
+    entries: buildEntryBreakdown(entries, threshold)
   };
 
   if (req.query.groupBy === 'user' || req.query.groupBy === 'job') {
     data.groupBy = req.query.groupBy;
-    data.groups = buildGroups(entries, req.query.groupBy);
+    data.groups = buildGroups(entries, req.query.groupBy, threshold, bonusConfig.toJSON());
   }
 
   res.json({ data });
@@ -270,10 +278,12 @@ export const reportsMonthlyComparison = async (req, res) => {
   const previousFrom = startOfUtcMonth(year, month - 2);
   const previousTo = endOfUtcMonth(year, month - 2);
 
-  const [currentEntries, previousEntries] = await Promise.all([
+  const [currentEntries, previousEntries, bonusConfig] = await Promise.all([
     fetchSubmittedEntries(currentFrom, currentTo),
-    fetchSubmittedEntries(previousFrom, previousTo)
+    fetchSubmittedEntries(previousFrom, previousTo),
+    BonusConfig.getSingleton()
   ]);
+  const threshold = bonusConfig.recoveryThreshold;
 
   res.json({
     data: {
@@ -281,13 +291,13 @@ export const reportsMonthlyComparison = async (req, res) => {
         label: monthLabel(currentFrom),
         from: currentFrom,
         to: currentTo,
-        ...buildTotals(currentEntries)
+        ...buildTotals(currentEntries, threshold)
       },
       previous: {
         label: monthLabel(previousFrom),
         from: previousFrom,
         to: previousTo,
-        ...buildTotals(previousEntries)
+        ...buildTotals(previousEntries, threshold)
       }
     }
   });

@@ -9,10 +9,12 @@ const EDITABLE_FIELDS = [
   'jobLocation',
   'clientJobNumber',
   'drillType',
+  'rigNumber',
   'scheduledDate',
   'status'
 ];
 const ASSIGNED_USER_PROJECTION = 'name email role active';
+const RIG_NUMBER_POPULATE = { path: 'rigNumber', select: 'name active' };
 
 const pickEditableFields = (body) => {
   const result = {};
@@ -47,7 +49,8 @@ export const listJobs = async (req, res) => {
       .sort(sort)
       .skip(skip)
       .limit(limit)
-      .populate('assignedUserIds', ASSIGNED_USER_PROJECTION),
+      .populate('assignedUserIds', ASSIGNED_USER_PROJECTION)
+      .populate(RIG_NUMBER_POPULATE),
     Job.countDocuments(filter)
   ]);
 
@@ -67,7 +70,7 @@ export const listAssignedJobs = async (req, res) => {
   }
 
   const [data, total] = await Promise.all([
-    Job.find(filter).sort(sort).skip(skip).limit(limit),
+    Job.find(filter).sort(sort).skip(skip).limit(limit).populate(RIG_NUMBER_POPULATE),
     Job.countDocuments(filter)
   ]);
 
@@ -75,7 +78,9 @@ export const listAssignedJobs = async (req, res) => {
 };
 
 export const getAssignedJob = async (req, res) => {
-  const job = await Job.findOne({ _id: req.params.id, assignedUserIds: req.user.id });
+  const job = await Job.findOne({ _id: req.params.id, assignedUserIds: req.user.id }).populate(
+    RIG_NUMBER_POPULATE
+  );
 
   if (!job) {
     res.status(404).json({ message: 'Job not found or not assigned to you' });
@@ -86,10 +91,9 @@ export const getAssignedJob = async (req, res) => {
 };
 
 export const getJob = async (req, res) => {
-  const job = await Job.findById(req.params.id).populate(
-    'assignedUserIds',
-    ASSIGNED_USER_PROJECTION
-  );
+  const job = await Job.findById(req.params.id)
+    .populate('assignedUserIds', ASSIGNED_USER_PROJECTION)
+    .populate(RIG_NUMBER_POPULATE);
 
   if (!job) {
     res.status(404).json({ message: 'Job not found' });
@@ -101,7 +105,7 @@ export const getJob = async (req, res) => {
 
 export const createJob = async (req, res) => {
   const job = await Job.create(pickEditableFields(req.body));
-  await job.populate('assignedUserIds', ASSIGNED_USER_PROJECTION);
+  await job.populate([{ path: 'assignedUserIds', select: ASSIGNED_USER_PROJECTION }, RIG_NUMBER_POPULATE]);
 
   res.status(201).json({ data: job });
 };
@@ -116,7 +120,7 @@ export const updateJob = async (req, res) => {
 
   Object.assign(job, pickEditableFields(req.body));
   await job.save();
-  await job.populate('assignedUserIds', ASSIGNED_USER_PROJECTION);
+  await job.populate([{ path: 'assignedUserIds', select: ASSIGNED_USER_PROJECTION }, RIG_NUMBER_POPULATE]);
 
   res.json({ data: job });
 };
@@ -142,7 +146,7 @@ export const setJobAssignments = async (req, res) => {
 
   job.assignedUserIds = uniqueUserIds;
   await job.save();
-  await job.populate('assignedUserIds', ASSIGNED_USER_PROJECTION);
+  await job.populate([{ path: 'assignedUserIds', select: ASSIGNED_USER_PROJECTION }, RIG_NUMBER_POPULATE]);
 
   res.json({ data: job });
 };

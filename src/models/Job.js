@@ -7,6 +7,7 @@ const jobSchema = new mongoose.Schema(
     jobLocation: { type: String, trim: true },
     clientJobNumber: { type: String, trim: true },
     drillType: { type: String, trim: true },
+    rigNumber: { type: mongoose.Schema.Types.ObjectId, ref: 'RigNumber', default: null },
     scheduledDate: { type: Date },
     assignedUserIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     status: {

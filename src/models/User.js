@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
+import { EMPLOYEE_TYPES } from '../config/masterData.js';
 
 const SALT_ROUNDS = 10;
 
@@ -20,6 +21,8 @@ const userSchema = new mongoose.Schema(
       enum: ['admin', 'operator'],
       default: 'operator'
     },
+    employeeType: { type: String, enum: EMPLOYEE_TYPES, default: null },
+    employeeCategory: { type: String, trim: true, default: null },
     phone: { type: String, trim: true },
     active: { type: Boolean, default: true },
     inviteTokenHash: { type: String, select: false },

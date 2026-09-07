@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { SHIFTS } from '../config/masterData.js';
 
 const activityLineSchema = new mongoose.Schema(
   {
@@ -28,6 +29,9 @@ const timeLogEntrySchema = new mongoose.Schema(
     jobId: { type: mongoose.Schema.Types.ObjectId, ref: 'Job', required: true },
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     date: { type: Date, required: true },
+    shift: { type: String, enum: SHIFTS, default: null },
+    metersDrilled: { type: Number, default: null },
+    metersRecovered: { type: Number, default: null },
     timeIn: { type: String, trim: true, default: '' },
     timeOut: { type: String, trim: true, default: '' },
     assistantName: { type: String, trim: true, default: '' },
@@ -46,7 +50,6 @@ const timeLogEntrySchema = new mongoose.Schema(
       decommissioned: { type: Boolean, default: false },
       locatesProvidedBy: { type: String, trim: true, default: '' }
     },
-    recoveryPercent: { type: Number, default: null },
     activityLines: { type: [activityLineSchema], default: [] },
     fuel: {
       dyedLt: { type: Number, default: null },
@@ -61,6 +64,16 @@ const timeLogEntrySchema = new mongoose.Schema(
 
 timeLogEntrySchema.index({ jobId: 1, userId: 1, status: 1 });
 timeLogEntrySchema.index({ userId: 1, date: -1 });
+
+timeLogEntrySchema.virtual('recoveryPercent').get(function recoveryPercent() {
+  if (!this.metersDrilled || this.metersDrilled <= 0) {
+    return null;
+  }
+  if (this.metersRecovered === null || this.metersRecovered === undefined) {
+    return null;
+  }
+  return Math.round((this.metersRecovered / this.metersDrilled) * 10000) / 100;
+});
 
 timeLogEntrySchema.set('toJSON', {
   virtuals: true,

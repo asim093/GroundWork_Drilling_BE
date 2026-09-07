@@ -45,6 +45,10 @@ export const listUsers = async (req, res) => {
     filter.passwordSet = true;
   }
 
+  if (req.query.employeeType) {
+    filter.employeeType = req.query.employeeType;
+  }
+
   if (req.query.search) {
     const term = String(req.query.search).trim();
     filter.$or = [
@@ -73,7 +77,7 @@ export const getUser = async (req, res) => {
 };
 
 export const createUser = async (req, res) => {
-  const { name, email, phone } = req.body;
+  const { name, email, phone, employeeType, employeeCategory } = req.body;
 
   const existing = await User.findOne({ email: String(email).toLowerCase() });
 
@@ -86,6 +90,8 @@ export const createUser = async (req, res) => {
     name,
     email,
     phone,
+    employeeType: employeeType || null,
+    employeeCategory: employeeCategory || null,
     role: 'operator',
     passwordSet: false,
     active: true
@@ -104,7 +110,7 @@ export const updateUser = async (req, res) => {
     return;
   }
 
-  const { name, email, phone, active } = req.body;
+  const { name, email, phone, active, employeeType, employeeCategory } = req.body;
 
   if (email && String(email).toLowerCase() !== user.email) {
     const clash = await User.findOne({ email: String(email).toLowerCase() });
@@ -127,6 +133,14 @@ export const updateUser = async (req, res) => {
 
   if (active !== undefined) {
     user.active = active;
+  }
+
+  if (employeeType !== undefined) {
+    user.employeeType = employeeType || null;
+  }
+
+  if (employeeCategory !== undefined) {
+    user.employeeCategory = employeeCategory || null;
   }
 
   await user.save();

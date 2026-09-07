@@ -1,6 +1,7 @@
 import User from '../models/User.js';
 import Job from '../models/Job.js';
 import TimeLogEntry from '../models/TimeLogEntry.js';
+import BonusConfig from '../models/BonusConfig.js';
 import {
   resolveDateRange,
   monthLabel,
@@ -56,18 +57,19 @@ const adminDashboard = async () => {
       .populate('userId', 'name')
   ]);
 
-  const jobEntries = await TimeLogEntry.find({
-    jobId: { $in: scheduledJobs.map((job) => job._id) }
-  })
-    .select('jobId userId date status')
-    .lean();
+  const [jobEntries, bonusConfig] = await Promise.all([
+    TimeLogEntry.find({ jobId: { $in: scheduledJobs.map((job) => job._id) } })
+      .select('jobId userId date status')
+      .lean(),
+    BonusConfig.getSingleton()
+  ]);
   const schedulingRows = computeSchedulingRows(scheduledJobs, jobEntries);
   const schedulingCounts = { submitted: 0, draft: 0, missing: 0 };
   schedulingRows.forEach((row) => {
     schedulingCounts[row.status] += 1;
   });
 
-  const totals = buildTotals(monthEntries);
+  const totals = buildTotals(monthEntries, bonusConfig.recoveryThreshold);
 
   return {
     role: 'admin',
@@ -89,7 +91,7 @@ const adminDashboard = async () => {
 const operatorDashboard = async (userId) => {
   const { from, to } = resolveDateRange({});
 
-  const [assignedJobs, myDraft, mySubmitted, monthSubmitted, monthEntries, recent] = await Promise.all([
+  const [assignedJobs, myDraft, mySubmitted, monthSubmitted, monthEntries, recent, bonusConfig] = await Promise.all([
     Job.find({ assignedUserIds: userId }).select('status').lean(),
     TimeLogEntry.countDocuments({ userId, status: 'draft' }),
     TimeLogEntry.countDocuments({ userId, status: 'submitted' }),
@@ -103,10 +105,11 @@ const operatorDashboard = async (userId) => {
       .sort({ updatedAt: -1 })
       .limit(5)
       .populate('jobId', 'jobNumber clientName')
-      .populate('userId', 'name')
+      .populate('userId', 'name'),
+    BonusConfig.getSingleton()
   ]);
 
-  const totals = buildTotals(monthEntries);
+  const totals = buildTotals(monthEntries, bonusConfig.recoveryThreshold);
 
   return {
     role: 'operator',
