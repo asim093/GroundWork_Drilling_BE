@@ -54,6 +54,37 @@ export const listJobs = async (req, res) => {
   res.json({ data, pagination: buildPaginationMeta(page, limit, total) });
 };
 
+export const listAssignedJobs = async (req, res) => {
+  const { page, limit, skip, sort } = buildListOptions(req.query, {
+    sortableFields: SORTABLE_FIELDS,
+    defaultSort: 'scheduledDate'
+  });
+
+  const filter = { assignedUserIds: req.user.id };
+
+  if (req.query.status) {
+    filter.status = req.query.status;
+  }
+
+  const [data, total] = await Promise.all([
+    Job.find(filter).sort(sort).skip(skip).limit(limit),
+    Job.countDocuments(filter)
+  ]);
+
+  res.json({ data, pagination: buildPaginationMeta(page, limit, total) });
+};
+
+export const getAssignedJob = async (req, res) => {
+  const job = await Job.findOne({ _id: req.params.id, assignedUserIds: req.user.id });
+
+  if (!job) {
+    res.status(404).json({ message: 'Job not found or not assigned to you' });
+    return;
+  }
+
+  res.json({ data: job });
+};
+
 export const getJob = async (req, res) => {
   const job = await Job.findById(req.params.id).populate(
     'assignedUserIds',

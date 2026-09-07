@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { body, param, query } from 'express-validator';
 import {
   listJobs,
+  listAssignedJobs,
+  getAssignedJob,
   getJob,
   createJob,
   updateJob,
@@ -13,19 +15,35 @@ import { authorize } from '../middleware/authorize.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 const STATUS_VALUES = ['scheduled', 'in-progress', 'submitted', 'archived'];
+const SORT_FIELDS = ['scheduledDate', 'jobNumber', 'clientName', 'createdAt'];
 
 const router = Router();
 
-router.use(authenticate, authorize('admin'));
+router.use(authenticate);
+
+router.get(
+  '/assigned',
+  query('status').optional().isIn(STATUS_VALUES).withMessage('Invalid status filter'),
+  query('sort').optional().isIn(SORT_FIELDS).withMessage('Invalid sort field'),
+  query('order').optional().isIn(['asc', 'desc']).withMessage('Order must be asc or desc'),
+  validate,
+  asyncHandler(listAssignedJobs)
+);
+
+router.get(
+  '/assigned/:id',
+  param('id').isMongoId().withMessage('Invalid job id'),
+  validate,
+  asyncHandler(getAssignedJob)
+);
+
+router.use(authorize('admin'));
 
 router.get(
   '/',
   query('status').optional().isIn(STATUS_VALUES).withMessage('Invalid status filter'),
   query('assignedUser').optional().isMongoId().withMessage('Invalid user id'),
-  query('sort')
-    .optional()
-    .isIn(['scheduledDate', 'jobNumber', 'clientName', 'createdAt'])
-    .withMessage('Invalid sort field'),
+  query('sort').optional().isIn(SORT_FIELDS).withMessage('Invalid sort field'),
   query('order').optional().isIn(['asc', 'desc']).withMessage('Order must be asc or desc'),
   validate,
   asyncHandler(listJobs)
