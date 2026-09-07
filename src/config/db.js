@@ -5,7 +5,10 @@ const connectionStates = ['disconnected', 'connected', 'connecting', 'disconnect
 
 export const connectDatabase = async () => {
   mongoose.set('strictQuery', true);
-  await mongoose.connect(env.mongoUri);
+  await mongoose.connect(env.mongoUri, {
+    serverSelectionTimeoutMS: 8000,
+    maxPoolSize: 10
+  });
   return mongoose.connection;
 };
 

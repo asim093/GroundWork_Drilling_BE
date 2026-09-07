@@ -11,12 +11,18 @@ if (missingKeys.length > 0) {
 
 const smtpConfigured = Boolean(process.env.SMTP_HOST && process.env.SMTP_PORT);
 
+const clientOrigins = (process.env.CLIENT_ORIGIN || 'http://localhost:5173')
+  .split(',')
+  .map((origin) => origin.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
 export const env = {
   port: Number(process.env.PORT) || 5000,
   mongoUri: process.env.MONGODB_URI,
   jwtSecret: process.env.JWT_SECRET,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
-  clientOrigin: process.env.CLIENT_ORIGIN || 'http://localhost:5173',
+  clientOrigins,
+  clientOrigin: clientOrigins[0],
   appName: process.env.APP_NAME || 'Groundwork Drilling',
   inviteExpiryHours: Number(process.env.INVITE_EXPIRY_HOURS) || 168,
   smtp: {
