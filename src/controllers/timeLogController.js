@@ -1,5 +1,6 @@
 import TimeLogEntry from '../models/TimeLogEntry.js';
 import Job from '../models/Job.js';
+import User from '../models/User.js';
 import BonusConfig from '../models/BonusConfig.js';
 import { buildListOptions, buildPaginationMeta } from '../utils/listQuery.js';
 import {
@@ -8,10 +9,15 @@ import {
   startOfUtcMonth,
   endOfUtcMonth,
   computeSchedulingRows,
-  buildTotals,
-  buildEntryBreakdown,
-  buildGroups
+  buildReportData,
+  computeUserBonus
 } from '../utils/reporting.js';
+import {
+  buildReportWorkbookBuffer,
+  buildReportPdfBuffer,
+  exportFilename,
+  EXPORT_CONTENT_TYPES
+} from '../utils/reportExport.js';
 
 const SORTABLE_FIELDS = ['date', 'createdAt', 'updatedAt', 'status'];
 const JOB_PROJECTION = 'jobNumber clientName jobLocation clientJobNumber drillType scheduledDate status';
@@ -236,34 +242,112 @@ export const listScheduling = async (req, res) => {
   });
 };
 
-const fetchSubmittedEntries = (from, to) =>
-  TimeLogEntry.find({ status: 'submitted', date: { $gte: from, $lte: to } })
+const fetchSubmittedEntries = (from, to, extra = {}) =>
+  TimeLogEntry.find({ status: 'submitted', date: { $gte: from, $lte: to }, ...extra })
     .populate('jobId', 'jobNumber clientName')
     .populate('userId', 'name email employeeType employeeCategory')
     .lean();
 
-export const reportsSummary = async (req, res) => {
-  const { from, to } = resolveDateRange(req.query);
-  const [entries, bonusConfig] = await Promise.all([
-    fetchSubmittedEntries(from, to),
-    BonusConfig.getSingleton()
-  ]);
-  const threshold = bonusConfig.recoveryThreshold;
+const resolveGroupBy = (value) => (value === 'user' || value === 'job' ? value : null);
 
-  const data = {
-    from,
-    to,
-    recoveryThreshold: threshold,
-    ...buildTotals(entries, threshold),
-    entries: buildEntryBreakdown(entries, threshold)
-  };
+const loadAdminReport = async (query) => {
+  const { from, to } = resolveDateRange(query);
 
-  if (req.query.groupBy === 'user' || req.query.groupBy === 'job') {
-    data.groupBy = req.query.groupBy;
-    data.groups = buildGroups(entries, req.query.groupBy, threshold, bonusConfig.toJSON());
+  const extra = {};
+  let scope = 'All operators';
+  if (query.user) {
+    extra.userId = query.user;
+    const target = await User.findById(query.user).select('name');
+    scope = target ? `Operator: ${target.name}` : 'Operator';
   }
 
-  res.json({ data });
+  const [entries, bonusConfig] = await Promise.all([
+    fetchSubmittedEntries(from, to, extra),
+    BonusConfig.getSingleton()
+  ]);
+
+  const report = buildReportData(entries, bonusConfig.toJSON(), {
+    groupBy: resolveGroupBy(query.groupBy)
+  });
+
+  return { from, to, report, scope };
+};
+
+const loadMyReport = async (req) => {
+  const { from, to } = resolveDateRange(req.query);
+  const [entries, bonusConfig] = await Promise.all([
+    fetchSubmittedEntries(from, to, { userId: req.user.id }),
+    BonusConfig.getSingleton()
+  ]);
+
+  const config = bonusConfig.toJSON();
+  const report = buildReportData(entries, config, {});
+  report.employeeType = req.user.employeeType || null;
+  report.bonus = computeUserBonus(entries, req.user.employeeType, config);
+
+  return { from, to, report };
+};
+
+export const reportsSummary = async (req, res) => {
+  const { from, to, report } = await loadAdminReport(req.query);
+  res.json({ data: { from, to, ...report } });
+};
+
+export const reportsMine = async (req, res) => {
+  const { from, to, report } = await loadMyReport(req);
+  res.json({ data: { from, to, ...report } });
+};
+
+const sendReportFile = async (res, { report, format, base, meta }) => {
+  const filename = exportFilename(base, format, meta);
+  const buffer =
+    format === 'pdf'
+      ? await buildReportPdfBuffer(report, meta)
+      : await buildReportWorkbookBuffer(report, meta);
+
+  res.setHeader('Content-Type', EXPORT_CONTENT_TYPES[format]);
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Content-Length', buffer.length);
+  res.send(buffer);
+};
+
+const slugScope = (scope) =>
+  scope
+    .replace(/^Operator:\s*/, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+
+export const reportsSummaryExport = async (req, res) => {
+  const { from, to, report, scope } = await loadAdminReport(req.query);
+  await sendReportFile(res, {
+    report,
+    format: req.query.format,
+    base: req.query.user ? `groundwork-report-${slugScope(scope)}` : 'groundwork-report',
+    meta: {
+      title: 'Groundwork Drilling — Reports',
+      scope,
+      from,
+      to,
+      groupBy: report.groupBy
+    }
+  });
+};
+
+export const reportsMineExport = async (req, res) => {
+  const { from, to, report } = await loadMyReport(req);
+  await sendReportFile(res, {
+    report,
+    format: req.query.format,
+    base: 'groundwork-my-report',
+    meta: {
+      title: 'Groundwork Drilling — My Reports',
+      scope: `Operator: ${req.user.name}`,
+      from,
+      to,
+      groupBy: null
+    }
+  });
 };
 
 export const reportsMonthlyComparison = async (req, res) => {
@@ -281,7 +365,7 @@ export const reportsMonthlyComparison = async (req, res) => {
     fetchSubmittedEntries(previousFrom, previousTo),
     BonusConfig.getSingleton()
   ]);
-  const threshold = bonusConfig.recoveryThreshold;
+  const config = bonusConfig.toJSON();
 
   res.json({
     data: {
@@ -289,13 +373,13 @@ export const reportsMonthlyComparison = async (req, res) => {
         label: monthLabel(currentFrom),
         from: currentFrom,
         to: currentTo,
-        ...buildTotals(currentEntries, threshold)
+        ...buildReportData(currentEntries, config, {})
       },
       previous: {
         label: monthLabel(previousFrom),
         from: previousFrom,
         to: previousTo,
-        ...buildTotals(previousEntries, threshold)
+        ...buildReportData(previousEntries, config, {})
       }
     }
   });

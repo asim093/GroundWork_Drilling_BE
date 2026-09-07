@@ -15,7 +15,8 @@ app.use(
         callback(null, false);
       }
     },
-    credentials: true
+    credentials: true,
+    exposedHeaders: ['Content-Disposition']
   })
 );
 app.use(express.json());

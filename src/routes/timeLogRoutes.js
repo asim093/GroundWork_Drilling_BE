@@ -5,6 +5,9 @@ import {
   listMyTimeLogs,
   listScheduling,
   reportsSummary,
+  reportsMine,
+  reportsSummaryExport,
+  reportsMineExport,
   reportsMonthlyComparison,
   getTimeLog,
   createTimeLog,
@@ -18,6 +21,16 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 
 const STATUS_VALUES = ['draft', 'submitted'];
 const SORT_FIELDS = ['date', 'createdAt', 'updatedAt', 'status'];
+const EXPORT_FORMATS = ['pdf', 'xlsx'];
+
+const dateRangeValidators = [
+  query('from').optional().isISO8601().withMessage('From must be a valid date'),
+  query('to').optional().isISO8601().withMessage('To must be a valid date')
+];
+
+const exportFormatValidator = query('format')
+  .isIn(EXPORT_FORMATS)
+  .withMessage('Format must be pdf or xlsx');
 
 const NUMBER_FIELDS = [
   'hoursOnSite',
@@ -132,11 +145,39 @@ router.get(
 router.get(
   '/reports/summary',
   authorize('admin'),
-  query('from').optional().isISO8601().withMessage('From must be a valid date'),
-  query('to').optional().isISO8601().withMessage('To must be a valid date'),
+  ...dateRangeValidators,
   query('groupBy').optional().isIn(['user', 'job']).withMessage('groupBy must be user or job'),
+  query('user').optional().isMongoId().withMessage('Invalid user id'),
   validate,
   asyncHandler(reportsSummary)
+);
+
+router.get(
+  '/reports/summary/export',
+  authorize('admin'),
+  ...dateRangeValidators,
+  query('groupBy').optional().isIn(['user', 'job']).withMessage('groupBy must be user or job'),
+  query('user').optional().isMongoId().withMessage('Invalid user id'),
+  exportFormatValidator,
+  validate,
+  asyncHandler(reportsSummaryExport)
+);
+
+router.get(
+  '/reports/mine',
+  authorize('operator'),
+  ...dateRangeValidators,
+  validate,
+  asyncHandler(reportsMine)
+);
+
+router.get(
+  '/reports/mine/export',
+  authorize('operator'),
+  ...dateRangeValidators,
+  exportFormatValidator,
+  validate,
+  asyncHandler(reportsMineExport)
 );
 
 router.get(

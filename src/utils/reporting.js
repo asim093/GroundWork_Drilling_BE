@@ -215,6 +215,7 @@ export const buildEntryBreakdown = (entries, threshold = DEFAULT_RECOVERY_THRESH
       jobNumber: entry.jobId?.jobNumber || null,
       clientName: entry.jobId?.clientName || null,
       operator: entry.userId?.name || null,
+      userId: entry.userId?._id ? String(entry.userId._id) : null,
       metersDrilled: entryMetersDrilled(entry),
       metersRecovered: entryMetersRecovered(entry),
       recoveryPercent,
@@ -224,6 +225,44 @@ export const buildEntryBreakdown = (entries, threshold = DEFAULT_RECOVERY_THRESH
       standbyHours: entry.standbyHours ?? null
     };
   });
+
+export const buildReportData = (entries, bonusConfig, { groupBy } = {}) => {
+  const threshold = bonusConfig?.recoveryThreshold ?? DEFAULT_RECOVERY_THRESHOLD;
+  const base = buildTotals(entries, threshold);
+  const userGroups = buildGroups(entries, 'user', threshold, bonusConfig);
+
+  const bonusTotalAmount = round2(
+    userGroups.reduce(
+      (sum, group) => sum + (typeof group.bonus?.amount === 'number' ? group.bonus.amount : 0),
+      0
+    )
+  );
+
+  const recoveryPercentOverall =
+    base.totals.metersDrilled > 0
+      ? round2((base.totals.metersRecovered / base.totals.metersDrilled) * 100)
+      : null;
+
+  let groups;
+  if (groupBy === 'user') {
+    groups = userGroups;
+  } else if (groupBy === 'job') {
+    groups = buildGroups(entries, 'job', threshold, bonusConfig);
+  }
+
+  return {
+    recoveryThreshold: threshold,
+    entryCount: base.entryCount,
+    totals: base.totals,
+    consumables: base.consumables,
+    bonusEligibility: base.bonusEligibility,
+    recoveryPercentOverall,
+    bonusTotalAmount,
+    entries: buildEntryBreakdown(entries, threshold),
+    groupBy: groupBy || null,
+    groups
+  };
+};
 
 export const buildGroups = (entries, groupBy, threshold, bonusConfig) => {
   const groups = new Map();
