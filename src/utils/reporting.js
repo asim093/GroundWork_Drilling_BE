@@ -1,3 +1,10 @@
+import {
+  entryMetersDrilled,
+  entryMetersRecovered,
+  entryRecoveryPercent,
+  entryTotalHours
+} from './timeLog.js';
+
 export const round2 = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
 
 export const dayKey = (value) => new Date(value).toISOString().slice(0, 10);
@@ -32,18 +39,7 @@ export const resolveDateRange = (query) => {
 
 export const DEFAULT_RECOVERY_THRESHOLD = 85;
 
-export const computeRecoveryPercent = (entry) => {
-  const drilled = entry?.metersDrilled;
-  const recovered = entry?.metersRecovered;
-
-  if (!drilled || drilled <= 0) {
-    return null;
-  }
-  if (recovered === null || recovered === undefined) {
-    return null;
-  }
-  return round2((recovered / drilled) * 100);
-};
+export const computeRecoveryPercent = (entry) => entryRecoveryPercent(entry);
 
 export const bonusEligibility = (recoveryPercent, threshold = DEFAULT_RECOVERY_THRESHOLD) => {
   if (recoveryPercent === null || recoveryPercent === undefined) {
@@ -59,7 +55,7 @@ export const computeUserBonus = (entries, employeeType, bonusConfig) => {
     entries.reduce((sum, entry) => {
       const recoveryPercent = computeRecoveryPercent(entry);
       if (recoveryPercent !== null && recoveryPercent >= threshold) {
-        return sum + (entry.metersDrilled || 0);
+        return sum + entryMetersDrilled(entry);
       }
       return sum;
     }, 0)
@@ -125,10 +121,7 @@ export const computeUserBonus = (entries, employeeType, bonusConfig) => {
 
 export const computeSchedulingRows = (jobs, entries) =>
   jobs.map((job) => {
-    const scheduledKey = dayKey(job.scheduledDate);
-    const jobEntries = entries.filter(
-      (entry) => entry.jobId.equals(job._id) && dayKey(entry.date) === scheduledKey
-    );
+    const jobEntries = entries.filter((entry) => entry.jobId.equals(job._id));
 
     const operators = job.assignedUserIds.map((operator) => {
       const operatorEntries = jobEntries.filter((entry) => entry.userId.equals(operator._id));
@@ -165,7 +158,14 @@ export const computeSchedulingRows = (jobs, entries) =>
   });
 
 export const buildTotals = (entries, threshold = DEFAULT_RECOVERY_THRESHOLD) => {
-  const totals = { hoursOnSite: 0, standbyHours: 0, otherHours: 0, metersDrilled: 0, metersRecovered: 0 };
+  const totals = {
+    hoursOnSite: 0,
+    standbyHours: 0,
+    otherHours: 0,
+    metersDrilled: 0,
+    metersRecovered: 0,
+    totalHours: 0
+  };
   const consumableMap = new Map();
   const bonus = { eligible: 0, 'not-eligible': 0, 'not-available': 0 };
 
@@ -173,8 +173,9 @@ export const buildTotals = (entries, threshold = DEFAULT_RECOVERY_THRESHOLD) => 
     totals.hoursOnSite += entry.hoursOnSite || 0;
     totals.standbyHours += entry.standbyHours || 0;
     totals.otherHours += entry.otherHours || 0;
-    totals.metersDrilled += entry.metersDrilled || 0;
-    totals.metersRecovered += entry.metersRecovered || 0;
+    totals.metersDrilled += entryMetersDrilled(entry);
+    totals.metersRecovered += entryMetersRecovered(entry) || 0;
+    totals.totalHours += entryTotalHours(entry);
 
     (entry.consumables || []).forEach((item) => {
       if (!item.itemName) {
@@ -194,7 +195,8 @@ export const buildTotals = (entries, threshold = DEFAULT_RECOVERY_THRESHOLD) => 
       standbyHours: round2(totals.standbyHours),
       otherHours: round2(totals.otherHours),
       metersDrilled: round2(totals.metersDrilled),
-      metersRecovered: round2(totals.metersRecovered)
+      metersRecovered: round2(totals.metersRecovered),
+      totalHours: round2(totals.totalHours)
     },
     consumables: [...consumableMap.entries()]
       .map(([itemName, qtyUsed]) => ({ itemName, qtyUsed: round2(qtyUsed) }))
@@ -213,10 +215,11 @@ export const buildEntryBreakdown = (entries, threshold = DEFAULT_RECOVERY_THRESH
       jobNumber: entry.jobId?.jobNumber || null,
       clientName: entry.jobId?.clientName || null,
       operator: entry.userId?.name || null,
-      metersDrilled: entry.metersDrilled ?? null,
-      metersRecovered: entry.metersRecovered ?? null,
+      metersDrilled: entryMetersDrilled(entry),
+      metersRecovered: entryMetersRecovered(entry),
       recoveryPercent,
       eligibility: bonusEligibility(recoveryPercent, threshold),
+      totalHours: entryTotalHours(entry),
       hoursOnSite: entry.hoursOnSite ?? null,
       standbyHours: entry.standbyHours ?? null
     };

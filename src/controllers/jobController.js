@@ -2,6 +2,17 @@ import Job from '../models/Job.js';
 import User from '../models/User.js';
 import { buildListOptions, buildPaginationMeta } from '../utils/listQuery.js';
 
+const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const buildSearchFilter = (search) => {
+  const term = String(search || '').trim();
+  if (!term) {
+    return null;
+  }
+  const rx = { $regex: escapeRegex(term), $options: 'i' };
+  return { $or: [{ jobNumber: rx }, { clientName: rx }, { jobLocation: rx }] };
+};
+
 const SORTABLE_FIELDS = ['scheduledDate', 'jobNumber', 'clientName', 'createdAt'];
 const EDITABLE_FIELDS = [
   'jobNumber',
@@ -27,6 +38,25 @@ const pickEditableFields = (body) => {
 
   return result;
 };
+
+const resolveAssignments = async (userIds) => {
+  const unique = [...new Set((userIds || []).map(String))];
+
+  if (unique.length > 0) {
+    const matchedCount = await User.countDocuments({ _id: { $in: unique } });
+
+    if (matchedCount !== unique.length) {
+      return null;
+    }
+  }
+
+  return unique;
+};
+
+const JOB_POPULATE = [
+  { path: 'assignedUserIds', select: ASSIGNED_USER_PROJECTION },
+  RIG_NUMBER_POPULATE
+];
 
 export const listJobs = async (req, res) => {
   const { page, limit, skip, sort } = buildListOptions(req.query, {
@@ -69,6 +99,11 @@ export const listAssignedJobs = async (req, res) => {
     filter.status = req.query.status;
   }
 
+  const searchFilter = buildSearchFilter(req.query.search);
+  if (searchFilter) {
+    Object.assign(filter, searchFilter);
+  }
+
   const [data, total] = await Promise.all([
     Job.find(filter).sort(sort).skip(skip).limit(limit).populate(RIG_NUMBER_POPULATE),
     Job.countDocuments(filter)
@@ -104,8 +139,21 @@ export const getJob = async (req, res) => {
 };
 
 export const createJob = async (req, res) => {
-  const job = await Job.create(pickEditableFields(req.body));
-  await job.populate([{ path: 'assignedUserIds', select: ASSIGNED_USER_PROJECTION }, RIG_NUMBER_POPULATE]);
+  const job = new Job(pickEditableFields(req.body));
+
+  if (Array.isArray(req.body.assignedUserIds)) {
+    const assignments = await resolveAssignments(req.body.assignedUserIds);
+
+    if (assignments === null) {
+      res.status(422).json({ message: 'One or more selected operators do not exist' });
+      return;
+    }
+
+    job.assignedUserIds = assignments;
+  }
+
+  await job.save();
+  await job.populate(JOB_POPULATE);
 
   res.status(201).json({ data: job });
 };
@@ -119,8 +167,20 @@ export const updateJob = async (req, res) => {
   }
 
   Object.assign(job, pickEditableFields(req.body));
+
+  if (Array.isArray(req.body.assignedUserIds)) {
+    const assignments = await resolveAssignments(req.body.assignedUserIds);
+
+    if (assignments === null) {
+      res.status(422).json({ message: 'One or more selected operators do not exist' });
+      return;
+    }
+
+    job.assignedUserIds = assignments;
+  }
+
   await job.save();
-  await job.populate([{ path: 'assignedUserIds', select: ASSIGNED_USER_PROJECTION }, RIG_NUMBER_POPULATE]);
+  await job.populate(JOB_POPULATE);
 
   res.json({ data: job });
 };
@@ -133,20 +193,16 @@ export const setJobAssignments = async (req, res) => {
     return;
   }
 
-  const uniqueUserIds = [...new Set(req.body.userIds.map(String))];
+  const assignments = await resolveAssignments(req.body.userIds);
 
-  if (uniqueUserIds.length > 0) {
-    const matchedCount = await User.countDocuments({ _id: { $in: uniqueUserIds } });
-
-    if (matchedCount !== uniqueUserIds.length) {
-      res.status(422).json({ message: 'One or more selected users do not exist' });
-      return;
-    }
+  if (assignments === null) {
+    res.status(422).json({ message: 'One or more selected users do not exist' });
+    return;
   }
 
-  job.assignedUserIds = uniqueUserIds;
+  job.assignedUserIds = assignments;
   await job.save();
-  await job.populate([{ path: 'assignedUserIds', select: ASSIGNED_USER_PROJECTION }, RIG_NUMBER_POPULATE]);
+  await job.populate(JOB_POPULATE);
 
   res.json({ data: job });
 };

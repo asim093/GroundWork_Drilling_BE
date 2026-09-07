@@ -20,8 +20,6 @@ const USER_PROJECTION = 'name email role employeeType employeeCategory';
 const EDITABLE_FIELDS = [
   'date',
   'shift',
-  'metersDrilled',
-  'metersRecovered',
   'timeIn',
   'timeOut',
   'assistantName',

@@ -1,11 +1,22 @@
 import mongoose from 'mongoose';
 import { SHIFTS } from '../config/masterData.js';
+import {
+  activityLineDrilledMeters,
+  activityLineHours,
+  entryMetersDrilled,
+  entryMetersRecovered,
+  entryRecoveryPercent,
+  entryTotalHours
+} from '../utils/timeLog.js';
 
 const activityLineSchema = new mongoose.Schema(
   {
     boreholeRef: { type: String, trim: true, default: '' },
     description: { type: String, trim: true, default: '' },
     depth: { type: Number, default: null },
+    depthFrom: { type: Number, default: null },
+    depthTo: { type: Number, default: null },
+    recoveryMeters: { type: Number, default: null },
     timeFrom: { type: String, trim: true, default: '' },
     timeTo: { type: String, trim: true, default: '' },
     chargeTime: { type: Number, default: null },
@@ -13,6 +24,16 @@ const activityLineSchema = new mongoose.Schema(
   },
   { _id: false }
 );
+
+activityLineSchema.virtual('drilledMeters').get(function drilledMeters() {
+  return activityLineDrilledMeters(this);
+});
+
+activityLineSchema.virtual('hours').get(function hours() {
+  return activityLineHours(this);
+});
+
+activityLineSchema.set('toJSON', { virtuals: true });
 
 const consumableUsageSchema = new mongoose.Schema(
   {
@@ -30,8 +51,6 @@ const timeLogEntrySchema = new mongoose.Schema(
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     date: { type: Date, required: true },
     shift: { type: String, enum: SHIFTS, default: null },
-    metersDrilled: { type: Number, default: null },
-    metersRecovered: { type: Number, default: null },
     timeIn: { type: String, trim: true, default: '' },
     timeOut: { type: String, trim: true, default: '' },
     assistantName: { type: String, trim: true, default: '' },
@@ -65,14 +84,20 @@ const timeLogEntrySchema = new mongoose.Schema(
 timeLogEntrySchema.index({ jobId: 1, userId: 1, status: 1 });
 timeLogEntrySchema.index({ userId: 1, date: -1 });
 
+timeLogEntrySchema.virtual('metersDrilled').get(function metersDrilled() {
+  return entryMetersDrilled(this);
+});
+
+timeLogEntrySchema.virtual('metersRecovered').get(function metersRecovered() {
+  return entryMetersRecovered(this);
+});
+
+timeLogEntrySchema.virtual('totalHours').get(function totalHours() {
+  return entryTotalHours(this);
+});
+
 timeLogEntrySchema.virtual('recoveryPercent').get(function recoveryPercent() {
-  if (!this.metersDrilled || this.metersDrilled <= 0) {
-    return null;
-  }
-  if (this.metersRecovered === null || this.metersRecovered === undefined) {
-    return null;
-  }
-  return Math.round((this.metersRecovered / this.metersDrilled) * 10000) / 100;
+  return entryRecoveryPercent(this);
 });
 
 timeLogEntrySchema.set('toJSON', {

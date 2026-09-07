@@ -24,6 +24,7 @@ router.use(authenticate);
 router.get(
   '/assigned',
   query('status').optional().isIn(STATUS_VALUES).withMessage('Invalid status filter'),
+  query('search').optional().trim(),
   query('sort').optional().isIn(SORT_FIELDS).withMessage('Invalid sort field'),
   query('order').optional().isIn(['asc', 'desc']).withMessage('Order must be asc or desc'),
   validate,
@@ -62,6 +63,8 @@ router.post(
     .isISO8601()
     .withMessage('Scheduled date must be a valid date'),
   body('status').optional().isIn(STATUS_VALUES).withMessage('Invalid status'),
+  body('assignedUserIds').optional().isArray().withMessage('assignedUserIds must be an array'),
+  body('assignedUserIds.*').isMongoId().withMessage('Each operator id must be valid'),
   validate,
   asyncHandler(createJob)
 );
@@ -87,6 +90,8 @@ router.patch(
     .isISO8601()
     .withMessage('Scheduled date must be a valid date'),
   body('status').optional().isIn(STATUS_VALUES).withMessage('Invalid status'),
+  body('assignedUserIds').optional().isArray().withMessage('assignedUserIds must be an array'),
+  body('assignedUserIds.*').isMongoId().withMessage('Each operator id must be valid'),
   validate,
   asyncHandler(updateJob)
 );

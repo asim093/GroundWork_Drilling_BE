@@ -25,9 +25,7 @@ const NUMBER_FIELDS = [
   'otherHours',
   'mileageStart',
   'mileageEnd',
-  'mileageTotal',
-  'metersDrilled',
-  'metersRecovered'
+  'mileageTotal'
 ];
 
 const listValidators = [
@@ -54,6 +52,51 @@ const entryBodyValidators = [
       .withMessage(`${field} must be a number`)
   ),
   body('activityLines').optional().isArray().withMessage('Activity lines must be a list'),
+  body('activityLines.*.depthFrom')
+    .optional({ nullable: true })
+    .isFloat({ min: 0 })
+    .withMessage('Depth from must be a number'),
+  body('activityLines.*.depthTo')
+    .optional({ nullable: true })
+    .isFloat({ min: 0 })
+    .withMessage('Depth to must be a number')
+    .bail()
+    .custom((value, { req, pathValues }) => {
+      const line = req.body.activityLines?.[pathValues[0]] || {};
+      const from = line.depthFrom;
+      if (from !== null && from !== undefined && from !== '' && Number(value) < Number(from)) {
+        throw new Error('Depth to cannot be less than depth from');
+      }
+      return true;
+    }),
+  body('activityLines.*.recoveryMeters')
+    .optional({ nullable: true })
+    .isFloat({ min: 0 })
+    .withMessage('Recovery meters must be a number')
+    .bail()
+    .custom((value, { req, pathValues }) => {
+      const line = req.body.activityLines?.[pathValues[0]] || {};
+      const { depthFrom, depthTo } = line;
+      const hasRange =
+        depthFrom !== null &&
+        depthFrom !== undefined &&
+        depthFrom !== '' &&
+        depthTo !== null &&
+        depthTo !== undefined &&
+        depthTo !== '';
+      if (hasRange && Number(value) > Number(depthTo) - Number(depthFrom)) {
+        throw new Error('Recovery meters cannot exceed drilled meters for the run');
+      }
+      return true;
+    }),
+  body('activityLines.*.timeFrom')
+    .optional({ nullable: true })
+    .isString()
+    .withMessage('Time from must be a time value'),
+  body('activityLines.*.timeTo')
+    .optional({ nullable: true })
+    .isString()
+    .withMessage('Time to must be a time value'),
   body('consumables').optional().isArray().withMessage('Consumables must be a list'),
   body('fuel').optional().isObject().withMessage('Fuel must be an object'),
   body('wellTag').optional().isObject().withMessage('Well tag must be an object')

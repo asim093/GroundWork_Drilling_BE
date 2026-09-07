@@ -9,7 +9,9 @@ if (missingKeys.length > 0) {
   throw new Error(`Missing required environment variables: ${missingKeys.join(', ')}`);
 }
 
-const smtpConfigured = Boolean(process.env.SMTP_HOST && process.env.SMTP_PORT);
+const smtpConfigured = Boolean(
+  process.env.SMTP_HOST && process.env.SMTP_PORT && process.env.SMTP_PASS
+);
 
 const clientOrigins = (process.env.CLIENT_ORIGIN || 'http://localhost:5173')
   .split(',')
