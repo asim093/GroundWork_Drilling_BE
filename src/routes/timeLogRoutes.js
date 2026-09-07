@@ -3,6 +3,9 @@ import { body, param, query } from 'express-validator';
 import {
   listTimeLogs,
   listMyTimeLogs,
+  listScheduling,
+  reportsSummary,
+  reportsMonthlyComparison,
   getTimeLog,
   createTimeLog,
   updateTimeLog,
@@ -58,6 +61,44 @@ router.use(authenticate);
 router.get('/', authorize('admin'), ...listValidators, validate, asyncHandler(listTimeLogs));
 
 router.get('/mine', ...listValidators, validate, asyncHandler(listMyTimeLogs));
+
+router.get(
+  '/scheduling',
+  authorize('admin'),
+  query('from').optional().isISO8601().withMessage('From must be a valid date'),
+  query('to').optional().isISO8601().withMessage('To must be a valid date'),
+  query('job').optional().isMongoId().withMessage('Invalid job id'),
+  query('status')
+    .optional()
+    .isIn(['submitted', 'draft', 'missing'])
+    .withMessage('Status must be submitted, draft or missing'),
+  query('sort')
+    .optional()
+    .isIn(['scheduledDate', 'jobNumber', 'clientName'])
+    .withMessage('Invalid sort field'),
+  query('order').optional().isIn(['asc', 'desc']).withMessage('Order must be asc or desc'),
+  validate,
+  asyncHandler(listScheduling)
+);
+
+router.get(
+  '/reports/summary',
+  authorize('admin'),
+  query('from').optional().isISO8601().withMessage('From must be a valid date'),
+  query('to').optional().isISO8601().withMessage('To must be a valid date'),
+  query('groupBy').optional().isIn(['user', 'job']).withMessage('groupBy must be user or job'),
+  validate,
+  asyncHandler(reportsSummary)
+);
+
+router.get(
+  '/reports/monthly-comparison',
+  authorize('admin'),
+  query('month').optional().isInt({ min: 1, max: 12 }).withMessage('Month must be between 1 and 12'),
+  query('year').optional().isInt({ min: 2000, max: 2100 }).withMessage('Year must be a valid year'),
+  validate,
+  asyncHandler(reportsMonthlyComparison)
+);
 
 router.post(
   '/',

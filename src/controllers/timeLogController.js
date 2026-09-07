@@ -1,6 +1,16 @@
 import TimeLogEntry from '../models/TimeLogEntry.js';
 import Job from '../models/Job.js';
 import { buildListOptions, buildPaginationMeta } from '../utils/listQuery.js';
+import {
+  resolveDateRange,
+  dayKey,
+  monthLabel,
+  startOfUtcMonth,
+  endOfUtcMonth,
+  buildTotals,
+  buildEntryBreakdown,
+  buildGroups
+} from '../utils/reporting.js';
 
 const SORTABLE_FIELDS = ['date', 'createdAt', 'updatedAt', 'status'];
 const JOB_PROJECTION = 'jobNumber clientName jobLocation clientJobNumber drillType scheduledDate status';
@@ -186,6 +196,139 @@ export const updateTimeLog = async (req, res) => {
   await populateEntry(entry);
 
   res.json({ data: entry });
+};
+
+const SCHEDULING_SORT_FIELDS = ['scheduledDate', 'jobNumber', 'clientName'];
+
+export const listScheduling = async (req, res) => {
+  const { from, to } = resolveDateRange(req.query);
+  const { page, limit, skip, sort } = buildListOptions(req.query, {
+    sortableFields: SCHEDULING_SORT_FIELDS,
+    defaultSort: 'scheduledDate'
+  });
+
+  const jobFilter = { scheduledDate: { $gte: from, $lte: to } };
+  if (req.query.job) {
+    jobFilter._id = req.query.job;
+  }
+
+  const jobs = await Job.find(jobFilter)
+    .sort(sort)
+    .populate('assignedUserIds', 'name email');
+
+  const jobIds = jobs.map((job) => job._id);
+  const entries = await TimeLogEntry.find({ jobId: { $in: jobIds } })
+    .select('jobId userId date status')
+    .lean();
+
+  let rows = jobs.map((job) => {
+    const scheduledKey = dayKey(job.scheduledDate);
+    const jobEntries = entries.filter(
+      (entry) => entry.jobId.equals(job._id) && dayKey(entry.date) === scheduledKey
+    );
+
+    const operators = job.assignedUserIds.map((operator) => {
+      const operatorEntries = jobEntries.filter((entry) => entry.userId.equals(operator._id));
+      const operatorStatus = operatorEntries.some((entry) => entry.status === 'submitted')
+        ? 'submitted'
+        : operatorEntries.length > 0
+          ? 'draft'
+          : 'missing';
+      return { id: operator.id, name: operator.name, status: operatorStatus };
+    });
+
+    let status;
+    if (jobEntries.length === 0) {
+      status = 'missing';
+    } else if (
+      operators.length > 0
+        ? operators.every((operator) => operator.status === 'submitted')
+        : jobEntries.every((entry) => entry.status === 'submitted')
+    ) {
+      status = 'submitted';
+    } else {
+      status = 'draft';
+    }
+
+    return {
+      jobId: job.id,
+      jobNumber: job.jobNumber,
+      clientName: job.clientName,
+      jobLocation: job.jobLocation || null,
+      date: job.scheduledDate,
+      operators,
+      status
+    };
+  });
+
+  if (req.query.status) {
+    rows = rows.filter((row) => row.status === req.query.status);
+  }
+
+  const total = rows.length;
+
+  res.json({
+    data: rows.slice(skip, skip + limit),
+    pagination: buildPaginationMeta(page, limit, total)
+  });
+};
+
+const fetchSubmittedEntries = (from, to) =>
+  TimeLogEntry.find({ status: 'submitted', date: { $gte: from, $lte: to } })
+    .populate('jobId', 'jobNumber clientName')
+    .populate('userId', 'name email')
+    .lean();
+
+export const reportsSummary = async (req, res) => {
+  const { from, to } = resolveDateRange(req.query);
+  const entries = await fetchSubmittedEntries(from, to);
+
+  const data = {
+    from,
+    to,
+    ...buildTotals(entries),
+    entries: buildEntryBreakdown(entries)
+  };
+
+  if (req.query.groupBy === 'user' || req.query.groupBy === 'job') {
+    data.groupBy = req.query.groupBy;
+    data.groups = buildGroups(entries, req.query.groupBy);
+  }
+
+  res.json({ data });
+};
+
+export const reportsMonthlyComparison = async (req, res) => {
+  const now = new Date();
+  const year = req.query.year ? Number(req.query.year) : now.getUTCFullYear();
+  const month = req.query.month ? Number(req.query.month) : now.getUTCMonth() + 1;
+
+  const currentFrom = startOfUtcMonth(year, month - 1);
+  const currentTo = endOfUtcMonth(year, month - 1);
+  const previousFrom = startOfUtcMonth(year, month - 2);
+  const previousTo = endOfUtcMonth(year, month - 2);
+
+  const [currentEntries, previousEntries] = await Promise.all([
+    fetchSubmittedEntries(currentFrom, currentTo),
+    fetchSubmittedEntries(previousFrom, previousTo)
+  ]);
+
+  res.json({
+    data: {
+      current: {
+        label: monthLabel(currentFrom),
+        from: currentFrom,
+        to: currentTo,
+        ...buildTotals(currentEntries)
+      },
+      previous: {
+        label: monthLabel(previousFrom),
+        from: previousFrom,
+        to: previousTo,
+        ...buildTotals(previousEntries)
+      }
+    }
+  });
 };
 
 export const submitTimeLog = async (req, res) => {
