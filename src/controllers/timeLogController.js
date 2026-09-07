@@ -3,10 +3,10 @@ import Job from '../models/Job.js';
 import { buildListOptions, buildPaginationMeta } from '../utils/listQuery.js';
 import {
   resolveDateRange,
-  dayKey,
   monthLabel,
   startOfUtcMonth,
   endOfUtcMonth,
+  computeSchedulingRows,
   buildTotals,
   buildEntryBreakdown,
   buildGroups
@@ -221,45 +221,7 @@ export const listScheduling = async (req, res) => {
     .select('jobId userId date status')
     .lean();
 
-  let rows = jobs.map((job) => {
-    const scheduledKey = dayKey(job.scheduledDate);
-    const jobEntries = entries.filter(
-      (entry) => entry.jobId.equals(job._id) && dayKey(entry.date) === scheduledKey
-    );
-
-    const operators = job.assignedUserIds.map((operator) => {
-      const operatorEntries = jobEntries.filter((entry) => entry.userId.equals(operator._id));
-      const operatorStatus = operatorEntries.some((entry) => entry.status === 'submitted')
-        ? 'submitted'
-        : operatorEntries.length > 0
-          ? 'draft'
-          : 'missing';
-      return { id: operator.id, name: operator.name, status: operatorStatus };
-    });
-
-    let status;
-    if (jobEntries.length === 0) {
-      status = 'missing';
-    } else if (
-      operators.length > 0
-        ? operators.every((operator) => operator.status === 'submitted')
-        : jobEntries.every((entry) => entry.status === 'submitted')
-    ) {
-      status = 'submitted';
-    } else {
-      status = 'draft';
-    }
-
-    return {
-      jobId: job.id,
-      jobNumber: job.jobNumber,
-      clientName: job.clientName,
-      jobLocation: job.jobLocation || null,
-      date: job.scheduledDate,
-      operators,
-      status
-    };
-  });
+  let rows = computeSchedulingRows(jobs, entries);
 
   if (req.query.status) {
     rows = rows.filter((row) => row.status === req.query.status);

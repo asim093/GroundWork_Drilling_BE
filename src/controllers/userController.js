@@ -1,7 +1,29 @@
 import User from '../models/User.js';
 import { buildListOptions, buildPaginationMeta } from '../utils/listQuery.js';
+import { createInviteToken, buildInviteLink } from '../utils/invite.js';
+import { inviteEmail } from '../utils/emailTemplates.js';
+import { sendMail } from '../utils/mailer.js';
+import { env } from '../config/env.js';
 
 const SORTABLE_FIELDS = ['name', 'email', 'createdAt'];
+
+const sendInvite = async (user) => {
+  const { rawToken, tokenHash, expiresAt } = createInviteToken();
+
+  user.inviteTokenHash = tokenHash;
+  user.inviteTokenExpires = expiresAt;
+  await user.save();
+
+  const link = buildInviteLink(rawToken, user.email);
+  const { subject, text, html } = inviteEmail({
+    name: user.name,
+    link,
+    expiryHours: env.inviteExpiryHours
+  });
+  const { delivered } = await sendMail({ to: user.email, subject, text, html });
+
+  return { link, delivered };
+};
 
 export const listUsers = async (req, res) => {
   const { page, limit, skip, sort } = buildListOptions(req.query, {
@@ -9,16 +31,18 @@ export const listUsers = async (req, res) => {
     defaultSort: 'createdAt'
   });
 
-  const filter = {};
-
-  if (req.query.role) {
-    filter.role = req.query.role;
-  }
+  const filter = { role: 'operator' };
 
   if (req.query.active === 'true') {
     filter.active = true;
   } else if (req.query.active === 'false') {
     filter.active = false;
+  }
+
+  if (req.query.status === 'pending') {
+    filter.passwordSet = false;
+  } else if (req.query.status === 'active') {
+    filter.passwordSet = true;
   }
 
   if (req.query.search) {
@@ -38,10 +62,10 @@ export const listUsers = async (req, res) => {
 };
 
 export const getUser = async (req, res) => {
-  const user = await User.findById(req.params.id);
+  const user = await User.findOne({ _id: req.params.id, role: 'operator' });
 
   if (!user) {
-    res.status(404).json({ message: 'User not found' });
+    res.status(404).json({ message: 'Operator not found' });
     return;
   }
 
@@ -49,7 +73,7 @@ export const getUser = async (req, res) => {
 };
 
 export const createUser = async (req, res) => {
-  const { name, email, password, role, phone } = req.body;
+  const { name, email, phone } = req.body;
 
   const existing = await User.findOne({ email: String(email).toLowerCase() });
 
@@ -58,20 +82,29 @@ export const createUser = async (req, res) => {
     return;
   }
 
-  const user = await User.create({ name, email, password, role, phone });
+  const user = await User.create({
+    name,
+    email,
+    phone,
+    role: 'operator',
+    passwordSet: false,
+    active: true
+  });
 
-  res.status(201).json({ data: user });
+  const invite = await sendInvite(user);
+
+  res.status(201).json({ data: user, invite });
 };
 
 export const updateUser = async (req, res) => {
-  const user = await User.findById(req.params.id);
+  const user = await User.findOne({ _id: req.params.id, role: 'operator' });
 
   if (!user) {
-    res.status(404).json({ message: 'User not found' });
+    res.status(404).json({ message: 'Operator not found' });
     return;
   }
 
-  const { name, email, password, role, phone, active } = req.body;
+  const { name, email, phone, active } = req.body;
 
   if (email && String(email).toLowerCase() !== user.email) {
     const clash = await User.findOne({ email: String(email).toLowerCase() });
@@ -88,10 +121,6 @@ export const updateUser = async (req, res) => {
     user.name = name;
   }
 
-  if (role !== undefined) {
-    user.role = role;
-  }
-
   if (phone !== undefined) {
     user.phone = phone;
   }
@@ -100,11 +129,20 @@ export const updateUser = async (req, res) => {
     user.active = active;
   }
 
-  if (password) {
-    user.password = password;
-  }
-
   await user.save();
 
   res.json({ data: user });
+};
+
+export const resendInvite = async (req, res) => {
+  const user = await User.findOne({ _id: req.params.id, role: 'operator' });
+
+  if (!user) {
+    res.status(404).json({ message: 'Operator not found' });
+    return;
+  }
+
+  const invite = await sendInvite(user);
+
+  res.json({ data: user, invite });
 };

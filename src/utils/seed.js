@@ -11,7 +11,7 @@ const upsertUser = async ({ name, email, password, role }) => {
     return;
   }
 
-  await User.create({ name, email, password, role, active: true });
+  await User.create({ name, email, password, role, active: true, passwordSet: true });
   console.log(`Created ${role}: ${email} / ${password}`);
 };
 

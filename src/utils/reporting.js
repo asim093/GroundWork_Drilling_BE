@@ -37,6 +37,47 @@ export const bonusEligibility = (recoveryPercent) => {
   return recoveryPercent >= 85 ? 'eligible' : 'not-eligible';
 };
 
+export const computeSchedulingRows = (jobs, entries) =>
+  jobs.map((job) => {
+    const scheduledKey = dayKey(job.scheduledDate);
+    const jobEntries = entries.filter(
+      (entry) => entry.jobId.equals(job._id) && dayKey(entry.date) === scheduledKey
+    );
+
+    const operators = job.assignedUserIds.map((operator) => {
+      const operatorEntries = jobEntries.filter((entry) => entry.userId.equals(operator._id));
+      const operatorStatus = operatorEntries.some((entry) => entry.status === 'submitted')
+        ? 'submitted'
+        : operatorEntries.length > 0
+          ? 'draft'
+          : 'missing';
+      return { id: operator.id, name: operator.name, status: operatorStatus };
+    });
+
+    let status;
+    if (jobEntries.length === 0) {
+      status = 'missing';
+    } else if (
+      operators.length > 0
+        ? operators.every((operator) => operator.status === 'submitted')
+        : jobEntries.every((entry) => entry.status === 'submitted')
+    ) {
+      status = 'submitted';
+    } else {
+      status = 'draft';
+    }
+
+    return {
+      jobId: job.id,
+      jobNumber: job.jobNumber,
+      clientName: job.clientName,
+      jobLocation: job.jobLocation || null,
+      date: job.scheduledDate,
+      operators,
+      status
+    };
+  });
+
 export const buildTotals = (entries) => {
   const totals = { hoursOnSite: 0, standbyHours: 0, otherHours: 0 };
   const consumableMap = new Map();

@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { body } from 'express-validator';
-import { login, getCurrentUser } from '../controllers/authController.js';
+import { body, query } from 'express-validator';
+import { login, getCurrentUser, getInvite, acceptInvite } from '../controllers/authController.js';
 import { validate } from '../middleware/validate.js';
 import { authenticate } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -16,5 +16,20 @@ router.post(
 );
 
 router.get('/me', authenticate, asyncHandler(getCurrentUser));
+
+router.get(
+  '/invite',
+  query('token').notEmpty().withMessage('An invitation token is required'),
+  validate,
+  asyncHandler(getInvite)
+);
+
+router.post(
+  '/accept-invite',
+  body('token').notEmpty().withMessage('An invitation token is required'),
+  body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
+  validate,
+  asyncHandler(acceptInvite)
+);
 
 export default router;
