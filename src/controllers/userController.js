@@ -28,7 +28,8 @@ const sendInvite = async (user) => {
 export const listUsers = async (req, res) => {
   const { page, limit, skip, sort } = buildListOptions(req.query, {
     sortableFields: SORTABLE_FIELDS,
-    defaultSort: 'createdAt'
+    defaultSort: 'createdAt',
+    defaultOrder: 'desc'
   });
 
   const filter = { role: 'operator' };

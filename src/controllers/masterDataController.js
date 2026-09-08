@@ -43,7 +43,8 @@ export const makeMasterDataController = (Model, { entityName, fields = [] }) => 
   const list = async (req, res) => {
     const { page, limit, skip, sort } = buildListOptions(req.query, {
       sortableFields: SORTABLE_FIELDS,
-      defaultSort: 'name'
+      defaultSort: 'createdAt',
+      defaultOrder: 'desc'
     });
 
     const filter = {};

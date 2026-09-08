@@ -93,7 +93,8 @@ const buildDateRange = (query) => {
 const listEntries = async (req, res, baseFilter) => {
   const { page, limit, skip, sort } = buildListOptions(req.query, {
     sortableFields: SORTABLE_FIELDS,
-    defaultSort: 'date'
+    defaultSort: 'date',
+    defaultOrder: 'desc'
   });
 
   const filter = { ...baseFilter };

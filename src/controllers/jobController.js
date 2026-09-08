@@ -63,7 +63,8 @@ const JOB_POPULATE = [
 export const listJobs = async (req, res) => {
   const { page, limit, skip, sort } = buildListOptions(req.query, {
     sortableFields: SORTABLE_FIELDS,
-    defaultSort: 'scheduledDate'
+    defaultSort: 'createdAt',
+    defaultOrder: 'desc'
   });
 
   const filter = {};
@@ -94,7 +95,8 @@ export const listJobs = async (req, res) => {
 export const listAssignedJobs = async (req, res) => {
   const { page, limit, skip, sort } = buildListOptions(req.query, {
     sortableFields: SORTABLE_FIELDS,
-    defaultSort: 'scheduledDate'
+    defaultSort: 'createdAt',
+    defaultOrder: 'desc'
   });
 
   const filter = { assignedUserIds: req.user.id, status: { $ne: 'archived' } };
