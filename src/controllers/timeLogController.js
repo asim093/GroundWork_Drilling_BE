@@ -18,9 +18,17 @@ import {
   exportFilename,
   EXPORT_CONTENT_TYPES
 } from '../utils/reportExport.js';
+import { startOfUtcDay } from '../utils/timeLog.js';
 
 const SORTABLE_FIELDS = ['date', 'createdAt', 'updatedAt', 'status'];
-const JOB_PROJECTION = 'jobNumber clientName jobLocation clientJobNumber drillType scheduledDate status';
+const JOB_PROJECTION =
+  'jobNumber clientName jobLocation clientJobNumber drillType scheduledDate status rigNumber';
+const JOB_POPULATE = { path: 'jobId', select: JOB_PROJECTION, populate: { path: 'rigNumber', select: 'name' } };
+const ACTIVITY_POPULATE = {
+  path: 'activityLines.activityId',
+  select: 'name categoryId',
+  populate: { path: 'categoryId', select: 'name' }
+};
 const USER_PROJECTION = 'name email role employeeType employeeCategory';
 
 const EDITABLE_FIELDS = [
@@ -38,7 +46,6 @@ const EDITABLE_FIELDS = [
   'otherHours',
   'mileageStart',
   'mileageEnd',
-  'mileageTotal',
   'wellTag',
   'activityLines',
   'fuel',
@@ -58,10 +65,7 @@ const pickEditableFields = (body) => {
 };
 
 const populateEntry = (entry) =>
-  entry.populate([
-    { path: 'jobId', select: JOB_PROJECTION },
-    { path: 'userId', select: USER_PROJECTION }
-  ]);
+  entry.populate([JOB_POPULATE, { path: 'userId', select: USER_PROJECTION }, ACTIVITY_POPULATE]);
 
 const buildDateRange = (query) => {
   const range = {};
@@ -134,8 +138,9 @@ export const listMyTimeLogs = async (req, res) => {
 
 export const getTimeLog = async (req, res) => {
   const entry = await TimeLogEntry.findById(req.params.id)
-    .populate('jobId', JOB_PROJECTION)
-    .populate('userId', USER_PROJECTION);
+    .populate(JOB_POPULATE)
+    .populate('userId', USER_PROJECTION)
+    .populate(ACTIVITY_POPULATE);
 
   if (!entry) {
     res.status(404).json({ message: 'Time log not found' });
@@ -165,6 +170,20 @@ export const createTimeLog = async (req, res) => {
 
   if (!isAssigned) {
     res.status(403).json({ message: 'You are not assigned to this job' });
+    return;
+  }
+
+  if (job.status === 'archived') {
+    res.status(409).json({ message: 'This job is archived and no longer accepts time logs' });
+    return;
+  }
+
+  const day = startOfUtcDay(req.body.date || new Date());
+  const existing = await TimeLogEntry.findOne({ jobId, userId: req.user.id, date: day });
+
+  if (existing) {
+    await populateEntry(existing);
+    res.status(200).json({ data: existing, existed: true });
     return;
   }
 
@@ -400,6 +419,16 @@ export const submitTimeLog = async (req, res) => {
 
   if (entry.status === 'submitted') {
     res.status(409).json({ message: 'This time log has already been submitted' });
+    return;
+  }
+
+  const missingActivity = entry.activityLines.findIndex(
+    (line) => !line.activityId && !line.description
+  );
+  if (missingActivity !== -1) {
+    res
+      .status(422)
+      .json({ message: `Select an activity for line ${missingActivity + 1} before submitting` });
     return;
   }
 

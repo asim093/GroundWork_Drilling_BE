@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import mongoose from 'mongoose';
 import { connectDatabase } from '../config/db.js';
 import { env } from '../config/env.js';
@@ -5,14 +6,24 @@ import User from '../models/User.js';
 import Location from '../models/Location.js';
 import RigNumber from '../models/RigNumber.js';
 import Consumable from '../models/Consumable.js';
+import ActivityCategory from '../models/ActivityCategory.js';
+import Activity from '../models/Activity.js';
 import BonusConfig from '../models/BonusConfig.js';
 import TimeLogEntry from '../models/TimeLogEntry.js';
 import {
   SEED_LOCATIONS,
   SEED_RIG_NUMBERS,
   SEED_CONSUMABLES,
+  SEED_ACTIVITY_CATEGORIES,
+  SEED_ACTIVITIES,
   SEED_BONUS_CONFIG
 } from '../config/masterData.js';
+
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const exactNameQuery = (name) => ({
+  name: { $regex: `^${escapeRegex(name)}$`, $options: 'i' }
+});
 
 const upsertUser = async ({ name, email, password, role }) => {
   const existing = await User.findOne({ email });
@@ -30,9 +41,7 @@ const seedNamedList = async (Model, names, label) => {
   let created = 0;
 
   for (const name of names) {
-    const existing = await Model.findOne({
-      name: { $regex: `^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' }
-    });
+    const existing = await Model.findOne(exactNameQuery(name));
     if (!existing) {
       await Model.create({ name });
       created += 1;
@@ -51,7 +60,60 @@ const seedConsumables = async () => {
         .filter((name) => name && name.toLowerCase() !== 'other')
     )
   ];
-  await seedNamedList(Consumable, merged, 'Consumables');
+  await seedNamedList(Consumable, merged, 'Consumables (base)');
+
+  const fileEntries = JSON.parse(
+    readFileSync(new URL('../data/consumables-seed.json', import.meta.url), 'utf8')
+  );
+
+  let created = 0;
+  let grouped = 0;
+
+  for (const { name, group } of fileEntries) {
+    const trimmed = String(name || '').trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    const existing = await Consumable.findOne(exactNameQuery(trimmed));
+
+    if (existing) {
+      if (!existing.group && group) {
+        existing.group = group;
+        await existing.save();
+        grouped += 1;
+      }
+    } else {
+      await Consumable.create({ name: trimmed, group: group || '' });
+      created += 1;
+    }
+  }
+
+  console.log(
+    `Consumables (file merge): ${created} new, ${grouped} existing given a group, ${await Consumable.countDocuments()} total`
+  );
+};
+
+const seedActivities = async () => {
+  await seedNamedList(ActivityCategory, SEED_ACTIVITY_CATEGORIES, 'Activity categories');
+
+  const categories = await ActivityCategory.find();
+  const categoryIdByName = new Map(categories.map((cat) => [cat.name.toLowerCase(), cat._id]));
+
+  let created = 0;
+
+  for (const { activity, category } of SEED_ACTIVITIES) {
+    const existing = await Activity.findOne(exactNameQuery(activity));
+    if (!existing) {
+      await Activity.create({
+        name: activity,
+        categoryId: categoryIdByName.get(category.toLowerCase()) || null
+      });
+      created += 1;
+    }
+  }
+
+  console.log(`Activities: ${created} created, ${await Activity.countDocuments()} total`);
 };
 
 const seedBonusConfig = async () => {
@@ -78,6 +140,7 @@ const seed = async () => {
     await seedNamedList(Location, SEED_LOCATIONS, 'Locations');
     await seedNamedList(RigNumber, SEED_RIG_NUMBERS, 'Rig numbers');
     await seedConsumables();
+    await seedActivities();
     await seedBonusConfig();
 
     await mongoose.connection.close();

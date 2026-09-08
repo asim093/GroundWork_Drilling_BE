@@ -14,7 +14,8 @@ const jobSchema = new mongoose.Schema(
       type: String,
       enum: ['scheduled', 'in-progress', 'submitted', 'archived'],
       default: 'scheduled'
-    }
+    },
+    previousStatus: { type: String, default: null }
   },
   { timestamps: true }
 );

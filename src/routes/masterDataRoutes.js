@@ -5,7 +5,10 @@ import { authenticate } from '../middleware/auth.js';
 import { authorize } from '../middleware/authorize.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
-export const makeMasterDataRouter = (controller) => {
+export const makeMasterDataRouter = (
+  controller,
+  { createValidators = [], updateValidators = [] } = {}
+) => {
   const router = Router();
 
   router.use(authenticate, authorize('admin'));
@@ -23,6 +26,7 @@ export const makeMasterDataRouter = (controller) => {
   router.post(
     '/',
     body('name').trim().notEmpty().withMessage('Name is required'),
+    ...createValidators,
     validate,
     asyncHandler(controller.create)
   );
@@ -32,6 +36,7 @@ export const makeMasterDataRouter = (controller) => {
     param('id').isMongoId().withMessage('Invalid id'),
     body('name').optional().trim().notEmpty().withMessage('Name cannot be empty'),
     body('active').optional().isBoolean().withMessage('Active must be true or false'),
+    ...updateValidators,
     validate,
     asyncHandler(controller.update)
   );

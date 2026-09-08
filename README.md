@@ -68,6 +68,34 @@ Seeded accounts:
 - Admin — `admin@groundworkdrilling.com` / `Admin123!`
 - Operator — `operator@groundworkdrilling.com` / `Operator123!`
 
+### Demo data (`npm run seed:demo`)
+
+Separate from `npm run seed`. Populates a full, presentable dataset for client demos:
+10 fictional demo operators (all `<name>@groundworkdrilling.demo`, password `12345678`),
+about a dozen `DEMO-###` jobs across several locations/rigs (mix of Scheduled and Archived),
+and time-log entries spanning the current and previous month (mix of submitted and draft,
+recovery both sides of the 85% threshold, bonus totals hitting more than one tier band).
+
+```
+cd Backend
+npm run seed:demo      # deletes any previous demo data, then reseeds
+npm run seed:demo      # run again any time to reset to a clean demo state
+```
+
+It is idempotent: every run first removes anything it previously created (users on the
+`@groundworkdrilling.demo` domain, `DEMO-` jobs, and their time logs) before recreating it.
+It never touches the admin account, the baseline master data (Locations, Rig Numbers,
+Consumables, Activities, Activity Categories, Bonus Config), or any real assigned job or its
+submissions. Run `npm run seed` first if the baseline master data is not yet in place.
+
+Each run also does a one-time cleanup, safe to repeat: it removes the legacy personal test
+operator `asimusman8899@gmail.com` (and any job left with no assignees and no submissions
+once that account is gone) so demos start from a clean slate.
+
+To remove the demo data entirely without reseeding, delete those same three sets:
+`db.users.deleteMany({ email: /@groundworkdrilling\.demo$/ })`, then
+`db.jobs.deleteMany({ jobNumber: /^DEMO-/ })`, then the orphaned time logs.
+
 ## Frontend
 
 ```

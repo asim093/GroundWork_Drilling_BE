@@ -5,14 +5,18 @@ import {
   activityLineHours,
   entryMetersDrilled,
   entryMetersRecovered,
+  entryMileageTotal,
   entryRecoveryPercent,
-  entryTotalHours
+  entryTotalHours,
+  startOfUtcDay
 } from '../utils/timeLog.js';
 
 const activityLineSchema = new mongoose.Schema(
   {
     boreholeRef: { type: String, trim: true, default: '' },
     description: { type: String, trim: true, default: '' },
+    activityId: { type: mongoose.Schema.Types.ObjectId, ref: 'Activity', default: null },
+    comments: { type: String, trim: true, default: '' },
     depth: { type: Number, default: null },
     depthFrom: { type: Number, default: null },
     depthTo: { type: Number, default: null },
@@ -63,7 +67,6 @@ const timeLogEntrySchema = new mongoose.Schema(
     otherHours: { type: Number, default: null },
     mileageStart: { type: Number, default: null },
     mileageEnd: { type: Number, default: null },
-    mileageTotal: { type: Number, default: null },
     wellTag: {
       installed: { type: Boolean, default: false },
       decommissioned: { type: Boolean, default: false },
@@ -81,8 +84,16 @@ const timeLogEntrySchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+timeLogEntrySchema.pre('validate', function normalizeDate(next) {
+  if (this.date) {
+    this.date = startOfUtcDay(this.date);
+  }
+  next();
+});
+
 timeLogEntrySchema.index({ jobId: 1, userId: 1, status: 1 });
 timeLogEntrySchema.index({ userId: 1, date: -1 });
+timeLogEntrySchema.index({ jobId: 1, userId: 1, date: 1 }, { unique: true });
 
 timeLogEntrySchema.virtual('metersDrilled').get(function metersDrilled() {
   return entryMetersDrilled(this);
@@ -98,6 +109,10 @@ timeLogEntrySchema.virtual('totalHours').get(function totalHours() {
 
 timeLogEntrySchema.virtual('recoveryPercent').get(function recoveryPercent() {
   return entryRecoveryPercent(this);
+});
+
+timeLogEntrySchema.virtual('mileageTotal').get(function mileageTotal() {
+  return entryMileageTotal(this);
 });
 
 timeLogEntrySchema.set('toJSON', {

@@ -1,5 +1,10 @@
 const round2 = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
 
+export const startOfUtcDay = (value) => {
+  const date = new Date(value);
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+};
+
 export const parseClockHours = (value) => {
   if (typeof value !== 'string') {
     return null;
@@ -71,6 +76,25 @@ export const entryMetersRecovered = (entry) => {
 export const entryTotalHours = (entry) => {
   const lines = entry?.activityLines || [];
   return round2(lines.reduce((sum, line) => sum + (activityLineHours(line) ?? 0), 0));
+};
+
+export const entryMileageTotal = (entry) => {
+  const start = entry?.mileageStart;
+  const end = entry?.mileageEnd;
+
+  if (
+    start === null ||
+    start === undefined ||
+    start === '' ||
+    end === null ||
+    end === undefined ||
+    end === ''
+  ) {
+    return null;
+  }
+
+  const value = Number(end) - Number(start);
+  return Number.isFinite(value) ? round2(value) : null;
 };
 
 export const entryRecoveryPercent = (entry) => {

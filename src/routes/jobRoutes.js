@@ -7,7 +7,9 @@ import {
   getJob,
   createJob,
   updateJob,
-  setJobAssignments
+  setJobAssignments,
+  archiveJob,
+  unarchiveJob
 } from '../controllers/jobController.js';
 import { validate } from '../middleware/validate.js';
 import { authenticate } from '../middleware/auth.js';
@@ -103,6 +105,20 @@ router.put(
   body('userIds.*').isMongoId().withMessage('Each user id must be valid'),
   validate,
   asyncHandler(setJobAssignments)
+);
+
+router.post(
+  '/:id/archive',
+  param('id').isMongoId().withMessage('Invalid job id'),
+  validate,
+  asyncHandler(archiveJob)
+);
+
+router.post(
+  '/:id/unarchive',
+  param('id').isMongoId().withMessage('Invalid job id'),
+  validate,
+  asyncHandler(unarchiveJob)
 );
 
 export default router;

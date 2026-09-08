@@ -1,15 +1,15 @@
 import mongoose from 'mongoose';
 
-const consumableSchema = new mongoose.Schema(
+const activitySchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
-    group: { type: String, trim: true, default: '' },
+    categoryId: { type: mongoose.Schema.Types.ObjectId, ref: 'ActivityCategory', default: null },
     active: { type: Boolean, default: true }
   },
   { timestamps: true }
 );
 
-consumableSchema.set('toJSON', {
+activitySchema.set('toJSON', {
   virtuals: true,
   transform: (doc, ret) => {
     delete ret.__v;
@@ -17,4 +17,4 @@ consumableSchema.set('toJSON', {
   }
 });
 
-export default mongoose.model('Consumable', consumableSchema);
+export default mongoose.model('Activity', activitySchema);

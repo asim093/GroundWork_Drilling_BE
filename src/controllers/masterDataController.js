@@ -5,7 +5,41 @@ const capitalize = (value) => value.charAt(0).toUpperCase() + value.slice(1);
 
 const SORTABLE_FIELDS = ['name', 'createdAt'];
 
-export const makeMasterDataController = (Model, { entityName }) => {
+export const makeMasterDataController = (Model, { entityName, fields = [] }) => {
+  const refFields = fields.filter((field) => field.kind === 'ref');
+  const distinctFields = fields.filter((field) => field.distinct);
+  const populatePaths = refFields.map((field) => ({ path: field.name, select: 'name active' }));
+
+  const applyFields = async (doc, body, { isCreate }) => {
+    for (const field of fields) {
+      if (body[field.name] === undefined) {
+        if (isCreate && field.required && !doc[field.name]) {
+          return `${field.label || field.name} is required`;
+        }
+        continue;
+      }
+
+      if (field.kind === 'string') {
+        doc[field.name] = String(body[field.name] || '').trim();
+        continue;
+      }
+
+      const value = body[field.name] || null;
+      if (field.required && !value) {
+        return `${field.label || field.name} is required`;
+      }
+      if (value) {
+        const exists = await field.ref.exists({ _id: value });
+        if (!exists) {
+          return `Selected ${(field.label || field.name).toLowerCase()} does not exist`;
+        }
+      }
+      doc[field.name] = value;
+    }
+
+    return null;
+  };
+
   const list = async (req, res) => {
     const { page, limit, skip, sort } = buildListOptions(req.query, {
       sortableFields: SORTABLE_FIELDS,
@@ -24,12 +58,32 @@ export const makeMasterDataController = (Model, { entityName }) => {
       filter.name = { $regex: escapeRegex(String(req.query.search).trim()), $options: 'i' };
     }
 
-    const [data, total] = await Promise.all([
-      Model.find(filter).sort(sort).skip(skip).limit(limit),
-      Model.countDocuments(filter)
-    ]);
+    fields.forEach((field) => {
+      if (field.filterParam && req.query[field.filterParam]) {
+        filter[field.name] = req.query[field.filterParam];
+      }
+    });
 
-    res.json({ data, pagination: buildPaginationMeta(page, limit, total) });
+    let listQuery = Model.find(filter).sort(sort).skip(skip).limit(limit);
+    if (populatePaths.length) {
+      listQuery = listQuery.populate(populatePaths);
+    }
+
+    const [data, total] = await Promise.all([listQuery, Model.countDocuments(filter)]);
+
+    const response = { data, pagination: buildPaginationMeta(page, limit, total) };
+
+    if (distinctFields.length) {
+      response.distinct = {};
+      for (const field of distinctFields) {
+        const values = await Model.distinct(field.name);
+        response.distinct[field.name] = values
+          .filter((value) => value !== null && value !== undefined && value !== '')
+          .sort((a, b) => String(a).localeCompare(String(b)));
+      }
+    }
+
+    res.json(response);
   };
 
   const create = async (req, res) => {
@@ -43,7 +97,18 @@ export const makeMasterDataController = (Model, { entityName }) => {
       return;
     }
 
-    const doc = await Model.create({ name });
+    const doc = new Model({ name });
+    const fieldError = await applyFields(doc, req.body, { isCreate: true });
+    if (fieldError) {
+      res.status(422).json({ message: fieldError });
+      return;
+    }
+
+    await doc.save();
+    if (populatePaths.length) {
+      await doc.populate(populatePaths);
+    }
+
     res.status(201).json({ data: doc });
   };
 
@@ -74,7 +139,17 @@ export const makeMasterDataController = (Model, { entityName }) => {
       doc.active = req.body.active;
     }
 
+    const fieldError = await applyFields(doc, req.body, { isCreate: false });
+    if (fieldError) {
+      res.status(422).json({ message: fieldError });
+      return;
+    }
+
     await doc.save();
+    if (populatePaths.length) {
+      await doc.populate(populatePaths);
+    }
+
     res.json({ data: doc });
   };
 

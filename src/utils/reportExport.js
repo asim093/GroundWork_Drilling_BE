@@ -3,9 +3,26 @@ import PDFDocument from 'pdfkit';
 
 const dateLabel = (value) => (value ? new Date(value).toISOString().slice(0, 10) : '');
 
-const num = (value) => (value === null || value === undefined ? '—' : value);
+const isBlank = (value) => value === null || value === undefined || value === '' || value === '—';
 
-const pct = (value) => (value === null || value === undefined ? '—' : `${value}%`);
+const formatNumber = (value) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return String(value);
+  }
+  return Number.isInteger(value)
+    ? value.toLocaleString('en-US')
+    : value.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+};
+
+const num = (value) => (isBlank(value) ? '—' : value);
+
+const pct = (value) => (isBlank(value) ? '—' : `${value}%`);
+
+const pdfNum = (value) => (isBlank(value) ? '—' : formatNumber(value));
+
+const pdfPct = (value) => (isBlank(value) ? '—' : `${formatNumber(value)}%`);
+
+const pdfMoney = (value) => (isBlank(value) ? '$0' : `$${formatNumber(value)}`);
 
 const ELIGIBILITY_LABEL = {
   eligible: 'Eligible',
@@ -21,7 +38,7 @@ const bonusText = (bonus) => {
     bonus.rateType === 'flat'
       ? `flat ${bonus.band.fromMeters}-${bonus.band.toMeters} m`
       : `$${bonus.rate}/m ${bonus.band.fromMeters}-${bonus.band.toMeters} m`;
-  return `$${bonus.amount} (${rate}${bonus.aboveTopBand ? ', above top band' : ''})`;
+  return `$${formatNumber(bonus.amount)} (${rate}${bonus.aboveTopBand ? ', above top band' : ''})`;
 };
 
 const kpiRows = (report) => [
@@ -37,6 +54,15 @@ const kpiRows = (report) => [
   ['Recovery threshold', pct(report.recoveryThreshold)]
 ];
 
+const HEADER_FILL = 'FF1971C2';
+
+const styleHeaderRow = (row) => {
+  row.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER_FILL } };
+  row.alignment = { vertical: 'middle' };
+  row.height = 18;
+};
+
 export const buildReportWorkbookBuffer = async (report, meta) => {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Groundwork Drilling';
@@ -45,13 +71,14 @@ export const buildReportWorkbookBuffer = async (report, meta) => {
   const summary = workbook.addWorksheet('Summary');
   summary.columns = [
     { header: 'Metric', key: 'metric', width: 26 },
-    { header: 'Value', key: 'value', width: 24 }
+    { header: 'Value', key: 'value', width: 26 }
   ];
   summary.addRow({ metric: 'Report scope', value: meta.scope });
   summary.addRow({ metric: 'Date range', value: `${dateLabel(meta.from)} to ${dateLabel(meta.to)}` });
   summary.addRow({});
   kpiRows(report).forEach(([metric, value]) => summary.addRow({ metric, value }));
-  summary.getRow(1).font = { bold: true };
+  styleHeaderRow(summary.getRow(1));
+  summary.views = [{ state: 'frozen', ySplit: 1 }];
 
   const consumables = workbook.addWorksheet('Consumables');
   consumables.columns = [
@@ -59,7 +86,8 @@ export const buildReportWorkbookBuffer = async (report, meta) => {
     { header: 'Total qty used', key: 'qty', width: 16 }
   ];
   report.consumables.forEach((item) => consumables.addRow({ item: item.itemName, qty: item.qtyUsed }));
-  consumables.getRow(1).font = { bold: true };
+  styleHeaderRow(consumables.getRow(1));
+  consumables.views = [{ state: 'frozen', ySplit: 1 }];
 
   if (Array.isArray(report.groups) && report.groups.length) {
     const isUser = report.groupBy === 'user';
@@ -96,7 +124,8 @@ export const buildReportWorkbookBuffer = async (report, meta) => {
         bonus: bonusText(group.bonus)
       });
     });
-    sheet.getRow(1).font = { bold: true };
+    styleHeaderRow(sheet.getRow(1));
+    sheet.views = [{ state: 'frozen', ySplit: 1 }];
   }
 
   const entries = workbook.addWorksheet('Entries');
@@ -126,79 +155,342 @@ export const buildReportWorkbookBuffer = async (report, meta) => {
       eligibility: ELIGIBILITY_LABEL[entry.eligibility] || entry.eligibility
     });
   });
-  entries.getRow(1).font = { bold: true };
+  styleHeaderRow(entries.getRow(1));
+  entries.views = [{ state: 'frozen', ySplit: 1 }];
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
 };
 
+const C = {
+  brand: '#1971c2',
+  blue: '#228be6',
+  teal: '#0c8599',
+  green: '#2f9e44',
+  amber: '#f08c00',
+  slate: '#868e96',
+  heading: '#1a1b1e',
+  body: '#343a40',
+  muted: '#868e96',
+  cardFill: '#f8f9fb',
+  cardBorder: '#e9ecef',
+  headerFill: '#1971c2',
+  headerText: '#ffffff',
+  zebra: '#f1f3f5',
+  gridLine: '#e9ecef',
+  subtitle: '#cfe2f8'
+};
+
+const ELIGIBILITY_COLOR = {
+  Eligible: C.green,
+  'Not eligible': C.amber,
+  'Not available': C.slate
+};
+
+const contentWidth = (doc) => doc.page.width - doc.page.margins.left - doc.page.margins.right;
+
+const contentBottom = (doc) => doc.page.height - doc.page.margins.bottom;
+
+const drawSummary = (doc, report) => {
+  const startX = doc.page.margins.left;
+  const usableWidth = contentWidth(doc);
+  const gap = 14;
+  const heroW = Math.round(usableWidth * 0.46);
+  const rightW = usableWidth - heroW - gap;
+  const blockH = 104;
+  const top = doc.y;
+
+  doc.save();
+  doc.roundedRect(startX, top, heroW, blockH, 7).fill(C.blue);
+  doc.restore();
+  doc
+    .fillColor('#ffffff')
+    .font('Helvetica-Bold')
+    .fontSize(8)
+    .text('Total bonus amount', startX + 16, top + 20, { width: heroW - 32, lineBreak: false });
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(24)
+    .text(pdfMoney(report.bonusTotalAmount), startX + 16, top + 37, {
+      width: heroW - 32,
+      lineBreak: false
+    });
+  doc
+    .font('Helvetica')
+    .fontSize(7.5)
+    .fillColor('#dce9f9')
+    .text(
+      `Across ${pdfNum(report.entryCount)} submitted ${
+        report.entryCount === 1 ? 'entry' : 'entries'
+      }`,
+      startX + 16,
+      top + 74,
+      { width: heroW - 32, lineBreak: false }
+    );
+
+  const mediumH = (blockH - gap) / 2;
+  const mediums = [
+    {
+      label: 'Overall recovery',
+      value: pdfPct(report.recoveryPercentOverall),
+      sub: `Bonus threshold ${pdfPct(report.recoveryThreshold)}`
+    },
+    {
+      label: 'Total hours logged',
+      value: pdfNum(report.totals.totalHours),
+      sub: 'On-site, standby and other'
+    }
+  ];
+  mediums.forEach((medium, index) => {
+    const mx = startX + heroW + gap;
+    const my = top + index * (mediumH + gap);
+    doc.save();
+    doc.roundedRect(mx, my, rightW, mediumH, 6).fillAndStroke(C.cardFill, C.cardBorder);
+    doc.restore();
+    doc
+      .fillColor(C.muted)
+      .font('Helvetica-Bold')
+      .fontSize(7)
+      .text(medium.label, mx + 12, my + 10, { width: rightW - 24, lineBreak: false });
+    doc
+      .fillColor(C.heading)
+      .font('Helvetica-Bold')
+      .fontSize(13)
+      .text(medium.value, mx + 12, my + 21, { width: rightW - 24, lineBreak: false });
+    doc
+      .fillColor(C.muted)
+      .font('Helvetica')
+      .fontSize(6.5)
+      .text(medium.sub, mx + 12, my + 38, { width: rightW - 24, lineBreak: false });
+  });
+
+  doc.fillColor('#000000');
+
+  const listRows = [
+    ['Total drilled', `${pdfNum(report.totals.metersDrilled)} m`],
+    ['Total recovered', `${pdfNum(report.totals.metersRecovered)} m`],
+    ['Bonus-eligible shifts', pdfNum(report.bonusEligibility.eligible)],
+    ['Not-eligible shifts', pdfNum(report.bonusEligibility['not-eligible'])],
+    ['Not-available shifts', pdfNum(report.bonusEligibility['not-available'])],
+    ['Submitted entries', pdfNum(report.entryCount)]
+  ];
+  const listTop = top + blockH + 14;
+  const listRowH = 18;
+  const listH = listRowH * listRows.length;
+  doc.save();
+  doc
+    .roundedRect(startX, listTop, usableWidth, listH, 6)
+    .strokeColor(C.cardBorder)
+    .lineWidth(1)
+    .stroke();
+  doc.restore();
+  listRows.forEach(([label, value], index) => {
+    const ry = listTop + index * listRowH;
+    if (index > 0) {
+      doc
+        .save()
+        .moveTo(startX + 12, ry)
+        .lineTo(startX + usableWidth - 12, ry)
+        .strokeColor(C.gridLine)
+        .lineWidth(0.5)
+        .stroke()
+        .restore();
+    }
+    doc
+      .fillColor(C.body)
+      .font('Helvetica')
+      .fontSize(8.5)
+      .text(label, startX + 14, ry + 5.5, { width: usableWidth / 2, lineBreak: false });
+    doc
+      .fillColor(C.heading)
+      .font('Helvetica-Bold')
+      .fontSize(8.5)
+      .text(String(value), startX + usableWidth / 2, ry + 5.5, {
+        width: usableWidth / 2 - 14,
+        align: 'right',
+        lineBreak: false
+      });
+  });
+
+  doc.fillColor('#000000');
+  doc.y = listTop + listH + 8;
+};
+
 const drawTable = (doc, columns, rows) => {
   const startX = doc.page.margins.left;
-  const usableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const usableWidth = contentWidth(doc);
   const totalWeight = columns.reduce((sum, col) => sum + col.weight, 0);
   const widths = columns.map((col) => (col.weight / totalWeight) * usableWidth);
+  const padX = 6;
+  const rowPad = 6;
 
-  const writeRow = (values, bold) => {
-    const y = doc.y;
-    let heights = 0;
-    doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(8);
-    let x = startX;
+  const measure = (values) => {
+    doc.font('Helvetica').fontSize(8);
+    let height = 0;
     values.forEach((value, index) => {
-      const h = doc.heightOfString(String(value), { width: widths[index] - 4 });
-      heights = Math.max(heights, h);
-      doc.text(String(value), x + 2, y, { width: widths[index] - 4 });
-      x += widths[index];
+      height = Math.max(
+        height,
+        doc.heightOfString(String(value), { width: widths[index] - padX * 2 })
+      );
     });
-    doc.y = y + heights + 4;
-    doc
-      .moveTo(startX, doc.y - 2)
-      .lineTo(startX + usableWidth, doc.y - 2)
-      .strokeColor('#dddddd')
-      .lineWidth(0.5)
-      .stroke();
+    return height + rowPad * 2;
   };
 
-  writeRow(columns.map((col) => col.header), true);
-  rows.forEach((row) => {
-    if (doc.y > doc.page.height - doc.page.margins.bottom - 24) {
+  const drawHeader = () => {
+    const height = 22;
+    const y = doc.y;
+    doc.save().rect(startX, y, usableWidth, height).fill(C.headerFill).restore();
+    doc.font('Helvetica-Bold').fontSize(7.5).fillColor(C.headerText);
+    let x = startX;
+    columns.forEach((col, index) => {
+      doc.text(String(col.header), x + padX, y + 7.5, {
+        width: widths[index] - padX * 2,
+        align: col.align || 'left',
+        lineBreak: false,
+        ellipsis: true
+      });
+      x += widths[index];
+    });
+    doc.fillColor('#000000');
+    doc.y = y + height;
+  };
+
+  drawHeader();
+
+  rows.forEach((values, rowIndex) => {
+    const height = measure(values);
+    if (doc.y + height > contentBottom(doc) - 24) {
       doc.addPage();
+      drawHeader();
     }
-    writeRow(row, false);
+    const y = doc.y;
+    if (rowIndex % 2 === 1) {
+      doc.save().rect(startX, y, usableWidth, height).fill(C.zebra).restore();
+    }
+    let x = startX;
+    values.forEach((value, index) => {
+      const col = columns[index];
+      doc
+        .font('Helvetica')
+        .fontSize(8)
+        .fillColor(col.color ? col.color(String(value)) : C.body)
+        .text(String(value), x + padX, y + rowPad, {
+          width: widths[index] - padX * 2,
+          align: col.align || 'left'
+        });
+      x += widths[index];
+    });
+    doc.fillColor('#000000');
+    doc.y = y + height;
+    doc
+      .save()
+      .moveTo(startX, doc.y)
+      .lineTo(startX + usableWidth, doc.y)
+      .strokeColor(C.gridLine)
+      .lineWidth(0.5)
+      .stroke()
+      .restore();
   });
-  doc.moveDown(1);
+
+  doc.moveDown(1.2);
 };
 
 const sectionTitle = (doc, text) => {
-  if (doc.y > doc.page.height - doc.page.margins.bottom - 60) {
+  if (doc.y + 48 > contentBottom(doc)) {
     doc.addPage();
   }
-  doc.moveDown(0.5).font('Helvetica-Bold').fontSize(12).fillColor('#111111').text(text);
-  doc.moveDown(0.3).fillColor('#000000');
+  const startX = doc.page.margins.left;
+  const usableWidth = contentWidth(doc);
+  doc.moveDown(0.4);
+  doc.font('Helvetica-Bold').fontSize(11).fillColor(C.heading).text(text, startX, doc.y);
+  doc.moveDown(0.25);
+  doc
+    .save()
+    .moveTo(startX, doc.y)
+    .lineTo(startX + usableWidth, doc.y)
+    .strokeColor(C.gridLine)
+    .lineWidth(1)
+    .stroke()
+    .restore();
+  doc.moveDown(0.5);
+  doc.fillColor('#000000');
+};
+
+const emptyNote = (doc, text) => {
+  doc.font('Helvetica-Oblique').fontSize(9).fillColor(C.muted).text(text);
+  doc.fillColor('#000000');
+  doc.moveDown(0.6);
+};
+
+const drawHeaderBand = (doc, meta) => {
+  const bandHeight = 66;
+  const startX = doc.page.margins.left;
+  doc.save().rect(0, 0, doc.page.width, bandHeight).fill(C.brand).restore();
+  doc
+    .fillColor('#ffffff')
+    .font('Helvetica-Bold')
+    .fontSize(16)
+    .text(meta.title, startX, 16, { lineBreak: false });
+  doc
+    .font('Helvetica')
+    .fontSize(9)
+    .fillColor(C.subtitle)
+    .text(
+      `${meta.scope}     ${dateLabel(meta.from)} – ${dateLabel(meta.to)}`,
+      startX,
+      40,
+      { lineBreak: false }
+    );
+  doc.fillColor('#000000');
+  doc.x = startX;
+  doc.y = bandHeight + 22;
+};
+
+const drawFooters = (doc, generatedLabel) => {
+  const range = doc.bufferedPageRange();
+  for (let i = range.start; i < range.start + range.count; i += 1) {
+    doc.switchToPage(i);
+    doc.page.margins.bottom = 0;
+    const startX = doc.page.margins.left;
+    const usableWidth = contentWidth(doc);
+    const y = doc.page.height - 26;
+    doc
+      .save()
+      .moveTo(startX, y - 6)
+      .lineTo(startX + usableWidth, y - 6)
+      .strokeColor(C.gridLine)
+      .lineWidth(0.5)
+      .stroke()
+      .restore();
+    doc.font('Helvetica').fontSize(7.5).fillColor(C.muted);
+    doc.text(`Groundwork Drilling  ·  Generated ${generatedLabel}`, startX, y, {
+      width: usableWidth,
+      align: 'left',
+      lineBreak: false
+    });
+    doc.text(`Page ${i - range.start + 1} of ${range.count}`, startX, y, {
+      width: usableWidth,
+      align: 'right',
+      lineBreak: false
+    });
+    doc.fillColor('#000000');
+  }
 };
 
 export const buildReportPdfBuffer = (report, meta) =>
   new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'A4', margin: 40 });
+    const doc = new PDFDocument({ size: 'A4', margin: 40, bufferPages: true });
     const chunks = [];
     doc.on('data', (chunk) => chunks.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
 
-    doc.font('Helvetica-Bold').fontSize(18).text(meta.title);
-    doc
-      .font('Helvetica')
-      .fontSize(10)
-      .fillColor('#555555')
-      .text(meta.scope)
-      .text(`${dateLabel(meta.from)} to ${dateLabel(meta.to)}`)
-      .fillColor('#000000');
-    doc.moveDown(0.5);
+    const generatedLabel = `${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+
+    drawHeaderBand(doc, meta);
 
     sectionTitle(doc, 'Summary');
-    kpiRows(report).forEach(([metric, value]) => {
-      doc.font('Helvetica').fontSize(10).text(`${metric}: `, { continued: true });
-      doc.font('Helvetica-Bold').text(String(value));
-    });
+    drawSummary(doc, report);
 
     sectionTitle(doc, 'Consumables used');
     if (report.consumables.length) {
@@ -206,36 +498,41 @@ export const buildReportPdfBuffer = (report, meta) =>
         doc,
         [
           { header: 'Item', weight: 3 },
-          { header: 'Total qty used', weight: 1 }
+          { header: 'Total qty used', weight: 1, align: 'right' }
         ],
-        report.consumables.map((item) => [item.itemName, item.qtyUsed])
+        report.consumables.map((item) => [item.itemName, pdfNum(item.qtyUsed)])
       );
     } else {
-      doc.font('Helvetica').fontSize(10).text('No consumables recorded in this period.');
+      emptyNote(doc, 'No consumables recorded in this period.');
     }
 
     if (Array.isArray(report.groups) && report.groups.length) {
       const isUser = report.groupBy === 'user';
       sectionTitle(doc, isUser ? 'Breakdown by user' : 'Breakdown by job');
       const columns = [
-        { header: isUser ? 'Operator' : 'Job', weight: 3 },
-        ...(isUser ? [{ header: 'Type', weight: 1.6 }] : []),
-        { header: 'Entries', weight: 1 },
-        { header: 'Hours', weight: 1 },
-        { header: 'Drilled', weight: 1.2 },
-        { header: 'Recov.', weight: 1.2 },
-        { header: 'Elig.', weight: 0.9 },
-        ...(isUser ? [{ header: 'Elig. m', weight: 1.3 }, { header: 'Bonus', weight: 3 }] : [])
+        { header: isUser ? 'Operator' : 'Job', weight: 2.6 },
+        ...(isUser ? [{ header: 'Type', weight: 1.3 }] : []),
+        { header: 'Ent.', weight: 0.85, align: 'right' },
+        { header: 'Hrs', weight: 0.85, align: 'right' },
+        { header: 'Drilled', weight: 1.15, align: 'right' },
+        { header: 'Recov.', weight: 1.15, align: 'right' },
+        { header: 'Elig.', weight: 0.9, align: 'right' },
+        ...(isUser
+          ? [
+              { header: 'Elig. m', weight: 1.2, align: 'right' },
+              { header: 'Bonus', weight: 2.6 }
+            ]
+          : [])
       ];
       const bodyRows = report.groups.map((group) => [
         group.label,
         ...(isUser ? [group.employeeType || '—'] : []),
-        group.entryCount,
-        group.totals.totalHours,
-        group.totals.metersDrilled,
-        group.totals.metersRecovered,
-        group.bonusEligibility.eligible,
-        ...(isUser ? [group.bonus?.eligibleMeters ?? 0, bonusText(group.bonus)] : [])
+        pdfNum(group.entryCount),
+        pdfNum(group.totals.totalHours),
+        pdfNum(group.totals.metersDrilled),
+        pdfNum(group.totals.metersRecovered),
+        pdfNum(group.bonusEligibility.eligible),
+        ...(isUser ? [pdfNum(group.bonus?.eligibleMeters ?? 0), bonusText(group.bonus)] : [])
       ]);
       drawTable(doc, columns, bodyRows);
     }
@@ -248,26 +545,32 @@ export const buildReportPdfBuffer = (report, meta) =>
           { header: 'Date', weight: 1.4 },
           { header: 'Job #', weight: 1.6 },
           { header: 'Operator', weight: 2.2 },
-          { header: 'Hours', weight: 1 },
-          { header: 'Drilled', weight: 1.1 },
-          { header: 'Recov.', weight: 1.1 },
-          { header: 'Rec. %', weight: 1.1 },
-          { header: 'Eligibility', weight: 1.6 }
+          { header: 'Hours', weight: 1, align: 'right' },
+          { header: 'Drilled', weight: 1.1, align: 'right' },
+          { header: 'Recov.', weight: 1.1, align: 'right' },
+          { header: 'Rec. %', weight: 1.1, align: 'right' },
+          {
+            header: 'Eligibility',
+            weight: 1.6,
+            color: (value) => ELIGIBILITY_COLOR[value] || C.body
+          }
         ],
         report.entries.map((entry) => [
           dateLabel(entry.date),
           entry.jobNumber || '—',
           entry.operator || '—',
-          num(entry.totalHours),
-          num(entry.metersDrilled),
-          num(entry.metersRecovered),
-          pct(entry.recoveryPercent),
+          pdfNum(entry.totalHours),
+          pdfNum(entry.metersDrilled),
+          pdfNum(entry.metersRecovered),
+          pdfPct(entry.recoveryPercent),
           ELIGIBILITY_LABEL[entry.eligibility] || entry.eligibility
         ])
       );
     } else {
-      doc.font('Helvetica').fontSize(10).text('No submitted entries in this period.');
+      emptyNote(doc, 'No submitted entries in this period.');
     }
+
+    drawFooters(doc, generatedLabel);
 
     doc.end();
   });

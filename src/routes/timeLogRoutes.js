@@ -37,8 +37,7 @@ const NUMBER_FIELDS = [
   'standbyHours',
   'otherHours',
   'mileageStart',
-  'mileageEnd',
-  'mileageTotal'
+  'mileageEnd'
 ];
 
 const listValidators = [
@@ -110,6 +109,11 @@ const entryBodyValidators = [
     .optional({ nullable: true })
     .isString()
     .withMessage('Time to must be a time value'),
+  body('activityLines.*.activityId')
+    .optional({ nullable: true, checkFalsy: true })
+    .isMongoId()
+    .withMessage('Invalid activity'),
+  body('activityLines.*.comments').optional({ nullable: true }).isString().trim(),
   body('consumables').optional().isArray().withMessage('Consumables must be a list'),
   body('fuel').optional().isObject().withMessage('Fuel must be an object'),
   body('wellTag').optional().isObject().withMessage('Well tag must be an object')

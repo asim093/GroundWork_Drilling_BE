@@ -26,6 +26,41 @@ const recentEntryShape = (entry) => ({
   operator: entry.userId?.name || null
 });
 
+const ACTIVITY_DAYS = 7;
+
+const activityWindowStart = () => {
+  const now = new Date();
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - (ACTIVITY_DAYS - 1))
+  );
+};
+
+const buildDailyActivity = (entries) => {
+  const now = new Date();
+  const buckets = [];
+
+  for (let offset = ACTIVITY_DAYS - 1; offset >= 0; offset -= 1) {
+    const day = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - offset)
+    );
+    buckets.push({
+      date: day.toISOString().slice(0, 10),
+      label: day.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }),
+      count: 0
+    });
+  }
+
+  const byDate = new Map(buckets.map((bucket) => [bucket.date, bucket]));
+  entries.forEach((entry) => {
+    const bucket = byDate.get(new Date(entry.updatedAt).toISOString().slice(0, 10));
+    if (bucket) {
+      bucket.count += 1;
+    }
+  });
+
+  return buckets;
+};
+
 const adminDashboard = async () => {
   const { from, to } = resolveDateRange({});
 
@@ -37,7 +72,8 @@ const adminDashboard = async () => {
     monthEntries,
     monthDraftCount,
     scheduledJobs,
-    recent
+    recent,
+    activityEntries
   ] = await Promise.all([
     User.countDocuments({ role: 'operator' }),
     User.countDocuments({ role: 'operator', active: true }),
@@ -54,7 +90,10 @@ const adminDashboard = async () => {
       .sort({ updatedAt: -1 })
       .limit(5)
       .populate('jobId', 'jobNumber clientName')
-      .populate('userId', 'name')
+      .populate('userId', 'name'),
+    TimeLogEntry.find({ status: 'submitted', updatedAt: { $gte: activityWindowStart() } })
+      .select('updatedAt')
+      .lean()
   ]);
 
   const [jobEntries, bonusConfig] = await Promise.all([
@@ -84,6 +123,7 @@ const adminDashboard = async () => {
       totals: totals.totals,
       bonusEligibility: totals.bonusEligibility
     },
+    submissionActivity: buildDailyActivity(activityEntries),
     recentSubmissions: recent.map(recentEntryShape)
   };
 };
@@ -91,7 +131,16 @@ const adminDashboard = async () => {
 const operatorDashboard = async (userId) => {
   const { from, to } = resolveDateRange({});
 
-  const [assignedJobs, myDraft, mySubmitted, monthSubmitted, monthEntries, recent, bonusConfig] = await Promise.all([
+  const [
+    assignedJobs,
+    myDraft,
+    mySubmitted,
+    monthSubmitted,
+    monthEntries,
+    recent,
+    activityEntries,
+    bonusConfig
+  ] = await Promise.all([
     Job.find({ assignedUserIds: userId }).select('status').lean(),
     TimeLogEntry.countDocuments({ userId, status: 'draft' }),
     TimeLogEntry.countDocuments({ userId, status: 'submitted' }),
@@ -106,6 +155,9 @@ const operatorDashboard = async (userId) => {
       .limit(5)
       .populate('jobId', 'jobNumber clientName')
       .populate('userId', 'name'),
+    TimeLogEntry.find({ userId, status: 'submitted', updatedAt: { $gte: activityWindowStart() } })
+      .select('updatedAt')
+      .lean(),
     BonusConfig.getSingleton()
   ]);
 
@@ -116,6 +168,7 @@ const operatorDashboard = async (userId) => {
     assignedJobs: { total: assignedJobs.length, byStatus: countByStatus(assignedJobs) },
     myTimeLogs: { draft: myDraft, submitted: mySubmitted, thisMonthSubmitted: monthSubmitted },
     thisMonth: { label: monthLabel(from), from, to, totals: totals.totals },
+    submissionActivity: buildDailyActivity(activityEntries),
     recentEntries: recent.map(recentEntryShape)
   };
 };
@@ -125,4 +178,66 @@ export const getDashboard = async (req, res) => {
     req.user.role === 'admin' ? await adminDashboard() : await operatorDashboard(req.user.id);
 
   res.json({ data });
+};
+
+const adminAttention = async () => {
+  const { from, to } = resolveDateRange({});
+
+  const [scheduledJobs, pendingInvites] = await Promise.all([
+    Job.find({ scheduledDate: { $gte: from, $lte: to } })
+      .populate('assignedUserIds', 'name')
+      .lean(),
+    User.find({ role: 'operator', active: true, passwordSet: false })
+      .select('name email')
+      .lean()
+  ]);
+
+  const jobEntries = await TimeLogEntry.find({
+    jobId: { $in: scheduledJobs.map((job) => job._id) }
+  })
+    .select('jobId userId date status')
+    .lean();
+
+  const missing = computeSchedulingRows(scheduledJobs, jobEntries).filter(
+    (row) => row.status === 'missing'
+  );
+
+  return [
+    ...missing.map((row) => ({
+      id: `missing-${row.jobNumber}`,
+      type: 'missing-submission',
+      title: `Job ${row.jobNumber} has no submission`,
+      subtitle: row.clientName || 'Scheduled this month',
+      to: '/admin/scheduling'
+    })),
+    ...pendingInvites.map((operator) => ({
+      id: `invite-${operator._id}`,
+      type: 'pending-invite',
+      title: `${operator.name} hasn't accepted their invite`,
+      subtitle: operator.email,
+      to: '/admin/users'
+    }))
+  ];
+};
+
+const operatorAttention = async (userId) => {
+  const drafts = await TimeLogEntry.find({ userId, status: 'draft' })
+    .sort({ updatedAt: -1 })
+    .populate('jobId', 'jobNumber')
+    .lean();
+
+  return drafts.map((entry) => ({
+    id: `draft-${entry._id}`,
+    type: 'draft',
+    title: `Unsent draft for job ${entry.jobId?.jobNumber || '—'}`,
+    subtitle: entry.date ? new Date(entry.date).toISOString().slice(0, 10) : 'No date set',
+    to: `/operator/log/${entry._id}`
+  }));
+};
+
+export const getAttention = async (req, res) => {
+  const items =
+    req.user.role === 'admin' ? await adminAttention() : await operatorAttention(req.user.id);
+
+  res.json({ data: { count: items.length, items } });
 };

@@ -1,6 +1,8 @@
 import Job from '../models/Job.js';
 import User from '../models/User.js';
+import TimeLogEntry from '../models/TimeLogEntry.js';
 import { buildListOptions, buildPaginationMeta } from '../utils/listQuery.js';
+import { startOfUtcDay } from '../utils/timeLog.js';
 
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -68,6 +70,8 @@ export const listJobs = async (req, res) => {
 
   if (req.query.status) {
     filter.status = req.query.status;
+  } else {
+    filter.status = { $ne: 'archived' };
   }
 
   if (req.query.assignedUser) {
@@ -93,7 +97,7 @@ export const listAssignedJobs = async (req, res) => {
     defaultSort: 'scheduledDate'
   });
 
-  const filter = { assignedUserIds: req.user.id };
+  const filter = { assignedUserIds: req.user.id, status: { $ne: 'archived' } };
 
   if (req.query.status) {
     filter.status = req.query.status;
@@ -104,18 +108,38 @@ export const listAssignedJobs = async (req, res) => {
     Object.assign(filter, searchFilter);
   }
 
-  const [data, total] = await Promise.all([
+  const [jobs, total] = await Promise.all([
     Job.find(filter).sort(sort).skip(skip).limit(limit).populate(RIG_NUMBER_POPULATE),
     Job.countDocuments(filter)
   ]);
+
+  const today = startOfUtcDay(new Date());
+  const todayEntries = await TimeLogEntry.find({
+    userId: req.user.id,
+    jobId: { $in: jobs.map((job) => job._id) },
+    date: today
+  })
+    .select('jobId status')
+    .lean();
+  const todayByJob = new Map(todayEntries.map((entry) => [String(entry.jobId), entry]));
+
+  const data = jobs.map((job) => {
+    const entry = todayByJob.get(job.id);
+    return {
+      ...job.toJSON(),
+      todayLog: entry ? { id: String(entry._id), status: entry.status } : null
+    };
+  });
 
   res.json({ data, pagination: buildPaginationMeta(page, limit, total) });
 };
 
 export const getAssignedJob = async (req, res) => {
-  const job = await Job.findOne({ _id: req.params.id, assignedUserIds: req.user.id }).populate(
-    RIG_NUMBER_POPULATE
-  );
+  const job = await Job.findOne({
+    _id: req.params.id,
+    assignedUserIds: req.user.id,
+    status: { $ne: 'archived' }
+  }).populate(RIG_NUMBER_POPULATE);
 
   if (!job) {
     res.status(404).json({ message: 'Job not found or not assigned to you' });
@@ -201,6 +225,49 @@ export const setJobAssignments = async (req, res) => {
   }
 
   job.assignedUserIds = assignments;
+  await job.save();
+  await job.populate(JOB_POPULATE);
+
+  res.json({ data: job });
+};
+
+export const archiveJob = async (req, res) => {
+  const job = await Job.findById(req.params.id);
+
+  if (!job) {
+    res.status(404).json({ message: 'Job not found' });
+    return;
+  }
+
+  if (job.status === 'archived') {
+    res.status(409).json({ message: 'This job is already archived' });
+    return;
+  }
+
+  job.previousStatus = job.status;
+  job.status = 'archived';
+  await job.save();
+  await job.populate(JOB_POPULATE);
+
+  res.json({ data: job });
+};
+
+export const unarchiveJob = async (req, res) => {
+  const job = await Job.findById(req.params.id);
+
+  if (!job) {
+    res.status(404).json({ message: 'Job not found' });
+    return;
+  }
+
+  if (job.status !== 'archived') {
+    res.status(409).json({ message: 'This job is not archived' });
+    return;
+  }
+
+  job.status =
+    job.previousStatus && job.previousStatus !== 'archived' ? job.previousStatus : 'scheduled';
+  job.previousStatus = null;
   await job.save();
   await job.populate(JOB_POPULATE);
 
