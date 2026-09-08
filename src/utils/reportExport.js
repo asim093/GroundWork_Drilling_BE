@@ -42,7 +42,7 @@ const bonusText = (bonus) => {
 };
 
 const kpiRows = (report) => [
-  ['Total hours', num(report.totals.totalHours)],
+  ['Total hours logged', num(report.totals.totalLoggedHours)],
   ['Total drilled (m)', num(report.totals.metersDrilled)],
   ['Total recovered (m)', num(report.totals.metersRecovered)],
   ['Overall recovery %', pct(report.recoveryPercentOverall)],
@@ -114,7 +114,7 @@ export const buildReportWorkbookBuffer = async (report, meta) => {
         label: group.label,
         employeeType: group.employeeType || '—',
         entries: group.entryCount,
-        hours: group.totals.totalHours,
+        hours: group.totals.totalLoggedHours,
         drilled: group.totals.metersDrilled,
         recovered: group.totals.metersRecovered,
         eligible: group.bonusEligibility.eligible,
@@ -135,7 +135,7 @@ export const buildReportWorkbookBuffer = async (report, meta) => {
     { header: 'Job #', key: 'jobNumber', width: 14 },
     { header: 'Client', key: 'client', width: 20 },
     { header: 'Operator', key: 'operator', width: 20 },
-    { header: 'Hours (calc)', key: 'hours', width: 12 },
+    { header: 'Hours', key: 'hours', width: 12 },
     { header: 'Drilled (m)', key: 'drilled', width: 12 },
     { header: 'Recovered (m)', key: 'recovered', width: 14 },
     { header: 'Recovery %', key: 'recovery', width: 12 },
@@ -148,7 +148,7 @@ export const buildReportWorkbookBuffer = async (report, meta) => {
       jobNumber: entry.jobNumber || '—',
       client: entry.clientName || '—',
       operator: entry.operator || '—',
-      hours: num(entry.totalHours),
+      hours: num(entry.totalLoggedHours),
       drilled: num(entry.metersDrilled),
       recovered: num(entry.metersRecovered),
       recovery: pct(entry.recoveryPercent),
@@ -237,7 +237,7 @@ const drawSummary = (doc, report) => {
     },
     {
       label: 'Total hours logged',
-      value: pdfNum(report.totals.totalHours),
+      value: pdfNum(report.totals.totalLoggedHours),
       sub: 'On-site, standby and other'
     }
   ];
@@ -618,7 +618,7 @@ export const buildReportPdfBuffer = (report, meta) =>
         group.label,
         ...(isUser ? [group.employeeType || '—'] : []),
         pdfNum(group.entryCount),
-        pdfNum(group.totals.totalHours),
+        pdfNum(group.totals.totalLoggedHours),
         pdfNum(group.totals.metersDrilled),
         pdfNum(group.totals.metersRecovered),
         pdfNum(group.bonusEligibility.eligible),
@@ -649,7 +649,7 @@ export const buildReportPdfBuffer = (report, meta) =>
           dateLabel(entry.date),
           entry.jobNumber || '—',
           entry.operator || '—',
-          pdfNum(entry.totalHours),
+          pdfNum(entry.totalLoggedHours),
           pdfNum(entry.metersDrilled),
           pdfNum(entry.metersRecovered),
           pdfPct(entry.recoveryPercent),

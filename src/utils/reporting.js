@@ -194,6 +194,7 @@ export const buildTotals = (entries, threshold = DEFAULT_RECOVERY_THRESHOLD) => 
       hoursOnSite: round2(totals.hoursOnSite),
       standbyHours: round2(totals.standbyHours),
       otherHours: round2(totals.otherHours),
+      totalLoggedHours: round2(totals.hoursOnSite + totals.standbyHours + totals.otherHours),
       metersDrilled: round2(totals.metersDrilled),
       metersRecovered: round2(totals.metersRecovered),
       totalHours: round2(totals.totalHours)
@@ -222,6 +223,9 @@ export const buildEntryBreakdown = (entries, threshold = DEFAULT_RECOVERY_THRESH
       recoveryPercent,
       eligibility: bonusEligibility(recoveryPercent, threshold),
       totalHours: entryTotalHours(entry),
+      totalLoggedHours: round2(
+        (entry.hoursOnSite || 0) + (entry.standbyHours || 0) + (entry.otherHours || 0)
+      ),
       hoursOnSite: entry.hoursOnSite ?? null,
       standbyHours: entry.standbyHours ?? null
     };
