@@ -32,6 +32,18 @@ const exportFormatValidator = query('format')
   .isIn(EXPORT_FORMATS)
   .withMessage('Format must be pdf or xlsx');
 
+const chartBodyValidators = [
+  body('charts').optional().isArray().withMessage('Charts must be a list'),
+  body('charts.*.title').optional().isString().withMessage('Chart title must be text'),
+  body('charts.*.dataUrl')
+    .optional()
+    .isString()
+    .withMessage('Chart image must be a data URL')
+    .bail()
+    .matches(/^data:image\/png;base64,/)
+    .withMessage('Chart image must be a PNG data URL')
+];
+
 const NUMBER_FIELDS = [
   'hoursOnSite',
   'standbyHours',
@@ -167,6 +179,18 @@ router.get(
   asyncHandler(reportsSummaryExport)
 );
 
+router.post(
+  '/reports/summary/export',
+  authorize('admin'),
+  ...dateRangeValidators,
+  query('groupBy').optional().isIn(['user', 'job']).withMessage('groupBy must be user or job'),
+  query('user').optional().isMongoId().withMessage('Invalid user id'),
+  exportFormatValidator,
+  ...chartBodyValidators,
+  validate,
+  asyncHandler(reportsSummaryExport)
+);
+
 router.get(
   '/reports/mine',
   authorize('operator'),
@@ -180,6 +204,16 @@ router.get(
   authorize('operator'),
   ...dateRangeValidators,
   exportFormatValidator,
+  validate,
+  asyncHandler(reportsMineExport)
+);
+
+router.post(
+  '/reports/mine/export',
+  authorize('operator'),
+  ...dateRangeValidators,
+  exportFormatValidator,
+  ...chartBodyValidators,
   validate,
   asyncHandler(reportsMineExport)
 );

@@ -212,6 +212,7 @@ export const buildEntryBreakdown = (entries, threshold = DEFAULT_RECOVERY_THRESH
       entryId: entry._id,
       date: entry.date,
       shift: entry.shift || null,
+      jobId: entry.jobId?._id ? String(entry.jobId._id) : null,
       jobNumber: entry.jobId?.jobNumber || null,
       clientName: entry.jobId?.clientName || null,
       operator: entry.userId?.name || null,

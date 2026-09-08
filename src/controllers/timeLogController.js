@@ -317,6 +317,13 @@ export const reportsMine = async (req, res) => {
   res.json({ data: { from, to, ...report } });
 };
 
+const collectChartImages = (body) =>
+  Array.isArray(body?.charts)
+    ? body.charts
+        .filter((chart) => chart && typeof chart.dataUrl === 'string' && chart.dataUrl.length > 0)
+        .map((chart) => ({ title: String(chart.title || 'Chart'), dataUrl: chart.dataUrl }))
+    : [];
+
 const sendReportFile = async (res, { report, format, base, meta }) => {
   const filename = exportFilename(base, format, meta);
   const buffer =
@@ -348,7 +355,8 @@ export const reportsSummaryExport = async (req, res) => {
       scope,
       from,
       to,
-      groupBy: report.groupBy
+      groupBy: report.groupBy,
+      charts: collectChartImages(req.body)
     }
   });
 };
@@ -364,7 +372,8 @@ export const reportsMineExport = async (req, res) => {
       scope: `Operator: ${req.user.name}`,
       from,
       to,
-      groupBy: null
+      groupBy: null,
+      charts: collectChartImages(req.body)
     }
   });
 };

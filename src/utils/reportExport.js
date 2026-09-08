@@ -31,7 +31,7 @@ const ELIGIBILITY_LABEL = {
 };
 
 const bonusText = (bonus) => {
-  if (!bonus || typeof bonus.amount !== 'number') {
+  if (!bonus || typeof bonus.amount !== 'number' || !bonus.band) {
     return bonus?.note || 'Not available';
   }
   const rate =
@@ -316,6 +316,87 @@ const drawSummary = (doc, report) => {
   doc.y = listTop + listH + 8;
 };
 
+const decodeChartImage = (dataUrl) => {
+  const match = /^data:image\/png;base64,(.+)$/.exec(String(dataUrl || ''));
+  if (!match) {
+    return null;
+  }
+  try {
+    return Buffer.from(match[1], 'base64');
+  } catch {
+    return null;
+  }
+};
+
+const pngSize = (buffer) => {
+  if (buffer.length > 24 && buffer.toString('ascii', 1, 4) === 'PNG') {
+    return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+  }
+  return null;
+};
+
+const drawCharts = (doc, charts) => {
+  const startX = doc.page.margins.left;
+  const usableWidth = contentWidth(doc);
+  const gap = 18;
+  const cap = 200;
+  const colWidth = Math.floor((usableWidth - gap) / 2);
+
+  const slots = [
+    { chart: charts[0], x: startX, width: colWidth },
+    { chart: charts[1], x: startX + colWidth + gap, width: colWidth }
+  ].filter((slot) => slot.chart);
+
+  if (!slots.length) {
+    return;
+  }
+
+  if (doc.y + cap + 34 > contentBottom(doc)) {
+    doc.addPage();
+  }
+
+  const titleTop = doc.y;
+  slots.forEach((slot) => {
+    doc
+      .fillColor(C.heading)
+      .font('Helvetica-Bold')
+      .fontSize(9)
+      .text(slot.chart.title || 'Chart', slot.x, titleTop, {
+        width: slot.width,
+        lineBreak: false,
+        ellipsis: true
+      });
+  });
+
+  const imageTop = titleTop + 15;
+  let rowHeight = 0;
+
+  slots.forEach((slot) => {
+    const buffer = decodeChartImage(slot.chart.dataUrl);
+    if (!buffer) {
+      return;
+    }
+    const size = pngSize(buffer);
+    const drawHeight = size
+      ? Math.min(cap, Math.round((slot.width * size.height) / size.width))
+      : cap;
+    rowHeight = Math.max(rowHeight, drawHeight);
+    try {
+      doc.image(buffer, slot.x, imageTop, { fit: [slot.width, cap], align: 'center', valign: 'top' });
+    } catch {
+      doc
+        .fillColor(C.muted)
+        .font('Helvetica-Oblique')
+        .fontSize(8)
+        .text('Chart image could not be rendered.', slot.x, imageTop, { width: slot.width });
+      rowHeight = Math.max(rowHeight, 14);
+    }
+  });
+
+  doc.y = imageTop + Math.max(rowHeight, 60) + 10;
+  doc.fillColor('#000000');
+};
+
 const drawTable = (doc, columns, rows) => {
   const startX = doc.page.margins.left;
   const usableWidth = contentWidth(doc);
@@ -355,6 +436,10 @@ const drawTable = (doc, columns, rows) => {
     doc.y = y + height;
   };
 
+  const firstRowHeight = rows.length ? measure(rows[0]) : 24;
+  if (doc.y + 22 + firstRowHeight > contentBottom(doc) - 24) {
+    doc.addPage();
+  }
   drawHeader();
 
   rows.forEach((values, rowIndex) => {
@@ -395,8 +480,8 @@ const drawTable = (doc, columns, rows) => {
   doc.moveDown(1.2);
 };
 
-const sectionTitle = (doc, text) => {
-  if (doc.y + 48 > contentBottom(doc)) {
+const sectionTitle = (doc, text, reserve = 48) => {
+  if (doc.y + reserve > contentBottom(doc)) {
     doc.addPage();
   }
   const startX = doc.page.margins.left;
@@ -492,7 +577,12 @@ export const buildReportPdfBuffer = (report, meta) =>
     sectionTitle(doc, 'Summary');
     drawSummary(doc, report);
 
-    sectionTitle(doc, 'Consumables used');
+    if (Array.isArray(meta.charts) && meta.charts.length) {
+      sectionTitle(doc, 'Charts');
+      drawCharts(doc, meta.charts);
+    }
+
+    sectionTitle(doc, 'Consumables used', 110);
     if (report.consumables.length) {
       drawTable(
         doc,
@@ -508,7 +598,7 @@ export const buildReportPdfBuffer = (report, meta) =>
 
     if (Array.isArray(report.groups) && report.groups.length) {
       const isUser = report.groupBy === 'user';
-      sectionTitle(doc, isUser ? 'Breakdown by user' : 'Breakdown by job');
+      sectionTitle(doc, isUser ? 'Breakdown by user' : 'Breakdown by job', 110);
       const columns = [
         { header: isUser ? 'Operator' : 'Job', weight: 2.6 },
         ...(isUser ? [{ header: 'Type', weight: 1.3 }] : []),
@@ -537,7 +627,7 @@ export const buildReportPdfBuffer = (report, meta) =>
       drawTable(doc, columns, bodyRows);
     }
 
-    sectionTitle(doc, 'Submitted entries');
+    sectionTitle(doc, 'Submitted entries', 110);
     if (report.entries.length) {
       drawTable(
         doc,
