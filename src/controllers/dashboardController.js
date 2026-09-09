@@ -83,7 +83,7 @@ const adminDashboard = async () => {
       .populate('jobId', 'jobNumber clientName')
       .lean(),
     TimeLogEntry.countDocuments({ status: 'draft', date: { $gte: from, $lte: to } }),
-    Job.find({ scheduledDate: { $gte: from, $lte: to } })
+    Job.find({ scheduledDate: { $gte: from, $lte: to }, status: { $ne: 'archived' } })
       .populate('assignedUserIds', 'name email')
       .lean(),
     TimeLogEntry.find({ status: 'submitted' })
@@ -184,7 +184,7 @@ const adminAttention = async () => {
   const { from, to } = resolveDateRange({});
 
   const [scheduledJobs, pendingInvites] = await Promise.all([
-    Job.find({ scheduledDate: { $gte: from, $lte: to } })
+    Job.find({ scheduledDate: { $gte: from, $lte: to }, status: { $ne: 'archived' } })
       .populate('assignedUserIds', 'name')
       .lean(),
     User.find({ role: 'operator', active: true, passwordSet: false })

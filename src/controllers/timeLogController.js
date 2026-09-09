@@ -234,7 +234,7 @@ export const listScheduling = async (req, res) => {
     defaultSort: 'scheduledDate'
   });
 
-  const jobFilter = { scheduledDate: { $gte: from, $lte: to } };
+  const jobFilter = { scheduledDate: { $gte: from, $lte: to }, status: { $ne: 'archived' } };
   if (req.query.job) {
     jobFilter._id = req.query.job;
   }

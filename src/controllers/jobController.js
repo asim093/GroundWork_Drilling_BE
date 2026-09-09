@@ -79,6 +79,35 @@ export const listJobs = async (req, res) => {
     filter.assignedUserIds = req.query.assignedUser;
   }
 
+  if (req.query.rigNumber) {
+    filter.rigNumber = req.query.rigNumber;
+  }
+
+  const term = String(req.query.search || '').trim();
+  if (term) {
+    const rx = { $regex: escapeRegex(term), $options: 'i' };
+    const matchedOperators = await User.find({ role: 'operator', name: rx }).select('_id').lean();
+    filter.$or = [
+      { jobNumber: rx },
+      { clientName: rx },
+      { jobLocation: rx },
+      { clientJobNumber: rx },
+      { assignedUserIds: { $in: matchedOperators.map((operator) => operator._id) } }
+    ];
+  }
+
+  if (req.query.from || req.query.to) {
+    filter.scheduledDate = {};
+    if (req.query.from) {
+      filter.scheduledDate.$gte = new Date(req.query.from);
+    }
+    if (req.query.to) {
+      const to = new Date(req.query.to);
+      to.setUTCHours(23, 59, 59, 999);
+      filter.scheduledDate.$lte = to;
+    }
+  }
+
   const [data, total] = await Promise.all([
     Job.find(filter)
       .sort(sort)
