@@ -16,6 +16,7 @@ import {
   SEED_CONSUMABLES,
   SEED_ACTIVITY_CATEGORIES,
   SEED_ACTIVITIES,
+  SEED_ASSISTANTS,
   SEED_BONUS_CONFIG
 } from '../config/masterData.js';
 
@@ -116,6 +117,31 @@ const seedActivities = async () => {
   console.log(`Activities: ${created} created, ${await Activity.countDocuments()} total`);
 };
 
+const seedAssistants = async () => {
+  let created = 0;
+
+  for (const name of SEED_ASSISTANTS) {
+    const email = `${name.toLowerCase().split(' ').join('.')}@groundworkdrilling.com`;
+    const existing = await User.findOne({ email });
+
+    if (!existing) {
+      await User.create({
+        name,
+        email,
+        role: 'operator',
+        employeeType: 'Assistant',
+        employeeCategory: 'Local',
+        active: true,
+        passwordSet: true
+      });
+      created += 1;
+    }
+  }
+
+  const total = await User.countDocuments({ role: 'operator', employeeType: 'Assistant' });
+  console.log(`Assistants: ${created} created, ${total} total`);
+};
+
 const seedBonusConfig = async () => {
   const existing = await BonusConfig.findOne();
   if (existing) {
@@ -141,6 +167,7 @@ const seed = async () => {
     await seedNamedList(RigNumber, SEED_RIG_NUMBERS, 'Rig numbers');
     await seedConsumables();
     await seedActivities();
+    await seedAssistants();
     await seedBonusConfig();
 
     await mongoose.connection.close();

@@ -32,6 +32,8 @@ const DEMO_OPERATORS = [
   { name: 'Drew Juliet', employeeType: '5th Man' }
 ];
 
+const DEMO_ASSISTANTS = ['Kai Kilo', 'Nova Lima', 'Reed Mike'];
+
 const DEMO_CLIENTS = [
   'Aurora Metals',
   'Northreef Exploration',
@@ -157,6 +159,22 @@ const createDemoUsers = async () => {
   }));
   const created = await User.create(docs);
   console.log(`Created ${created.length} demo operators`);
+  return created;
+};
+
+const createDemoAssistants = async () => {
+  const docs = DEMO_ASSISTANTS.map((name) => ({
+    name,
+    email: emailFor(name),
+    password: DEMO_PASSWORD,
+    role: 'operator',
+    employeeType: 'Assistant',
+    employeeCategory: 'Local',
+    active: true,
+    passwordSet: true
+  }));
+  const created = await User.create(docs);
+  console.log(`Created ${created.length} demo assistants`);
   return created;
 };
 
@@ -473,10 +491,11 @@ const seedDemo = async () => {
 
     const reference = await loadReferenceData();
     const users = await createDemoUsers();
+    const assistants = await createDemoAssistants();
     const jobs = await createDemoJobs(users, reference.locations, reference.rigs);
     await createDemoEntries(users, jobs, reference.activityIds, reference.consumables);
 
-    printSummary(users);
+    printSummary([...users, ...assistants]);
 
     await mongoose.connection.close();
     process.exit(0);
