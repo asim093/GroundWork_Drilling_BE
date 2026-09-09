@@ -18,7 +18,7 @@ import {
   exportFilename,
   EXPORT_CONTENT_TYPES
 } from '../utils/reportExport.js';
-import { startOfUtcDay } from '../utils/timeLog.js';
+import { startOfUtcDay, isWithinShift } from '../utils/timeLog.js';
 
 const SORTABLE_FIELDS = ['date', 'createdAt', 'updatedAt', 'status'];
 const JOB_PROJECTION =
@@ -440,6 +440,20 @@ export const submitTimeLog = async (req, res) => {
       .status(422)
       .json({ message: `Select an activity for line ${missingActivity + 1} before submitting` });
     return;
+  }
+
+  if (entry.timeIn && entry.timeOut) {
+    const outOfWindow = entry.activityLines.findIndex(
+      (line) =>
+        !isWithinShift(line.timeFrom, entry.timeIn, entry.timeOut) ||
+        !isWithinShift(line.timeTo, entry.timeIn, entry.timeOut)
+    );
+    if (outOfWindow !== -1) {
+      res.status(422).json({
+        message: `Line ${outOfWindow + 1}: activity time is outside your Time in and Time out`
+      });
+      return;
+    }
   }
 
   entry.status = 'submitted';

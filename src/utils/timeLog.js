@@ -54,6 +54,24 @@ export const activityLineHours = (line) => {
   return round2(diff);
 };
 
+export const isWithinShift = (lineTime, timeIn, timeOut) => {
+  const point = parseClockHours(lineTime);
+  const start = parseClockHours(timeIn);
+  let end = parseClockHours(timeOut);
+
+  if (point === null || start === null || end === null) {
+    return true;
+  }
+  if (end <= start) {
+    end += 24;
+  }
+  let normalized = point;
+  if (normalized < start) {
+    normalized += 24;
+  }
+  return normalized >= start && normalized <= end;
+};
+
 export const entryMetersDrilled = (entry) => {
   const lines = entry?.activityLines || [];
   return round2(lines.reduce((sum, line) => sum + (activityLineDrilledMeters(line) ?? 0), 0));
