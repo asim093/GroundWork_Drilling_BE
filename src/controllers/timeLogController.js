@@ -253,17 +253,22 @@ export const listScheduling = async (req, res) => {
 
   const jobs = await Job.find(jobFilter)
     .sort(sort)
-    .populate('assignedUserIds', 'name email');
+    .populate('siteManagers.userId', 'name');
 
   const jobIds = jobs.map((job) => job._id);
   const entries = await TimeLogEntry.find({ jobId: { $in: jobIds } })
-    .select('jobId userId date status')
+    .select('jobId date shift status crew')
+    .populate('crew.employeeId', 'name employeeType')
     .lean();
 
   let rows = computeSchedulingRows(jobs, entries);
 
   if (req.query.status) {
     rows = rows.filter((row) => row.status === req.query.status);
+  }
+
+  if (req.query.shift) {
+    rows = rows.filter((row) => row.shift === req.query.shift);
   }
 
   const total = rows.length;

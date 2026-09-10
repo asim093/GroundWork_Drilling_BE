@@ -119,43 +119,76 @@ export const computeUserBonus = (entries, employeeType, bonusConfig) => {
   };
 };
 
-export const computeSchedulingRows = (jobs, entries) =>
-  jobs.map((job) => {
-    const jobEntries = entries.filter((entry) => entry.jobId.equals(job._id));
+const crewShape = (crew = []) =>
+  crew.map((member) => ({
+    id: String(member.employeeId?._id || member.employeeId?.id || member.employeeId),
+    name: member.employeeId?.name || null,
+    employeeType: member.employeeId?.employeeType || null
+  }));
 
-    const operators = job.assignedUserIds.map((operator) => {
-      const operatorEntries = jobEntries.filter((entry) => entry.userId.equals(operator._id));
-      const operatorStatus = operatorEntries.some((entry) => entry.status === 'submitted')
-        ? 'submitted'
-        : operatorEntries.length > 0
-          ? 'draft'
-          : 'missing';
-      return { id: operator.id, name: operator.name, status: operatorStatus };
-    });
+const shiftStatus = (entry) => {
+  if (!entry) {
+    return 'missing';
+  }
+  return entry.status === 'submitted' ? 'submitted' : 'draft';
+};
 
-    let status;
-    if (jobEntries.length === 0) {
-      status = 'missing';
-    } else if (
-      operators.length > 0
-        ? operators.every((operator) => operator.status === 'submitted')
-        : jobEntries.every((entry) => entry.status === 'submitted')
-    ) {
-      status = 'submitted';
-    } else {
-      status = 'draft';
-    }
+export const computeSchedulingRows = (jobs, entries) => {
+  const rows = [];
 
-    return {
-      jobId: job.id,
+  jobs.forEach((job) => {
+    const jobId = job.id || String(job._id);
+    const jobEntries = entries.filter((entry) => String(entry.jobId) === String(job._id));
+    const base = {
+      jobId,
       jobNumber: job.jobNumber,
       clientName: job.clientName,
       jobLocation: job.jobLocation || null,
-      date: job.scheduledDate,
-      operators,
-      status
+      date: job.scheduledDate
     };
+
+    const shifts = [...new Set((job.siteManagers || []).map((manager) => manager.shift))];
+
+    if (shifts.length === 0) {
+      const anyEntry = jobEntries[0];
+      const status =
+        jobEntries.length === 0
+          ? 'missing'
+          : jobEntries.every((entry) => entry.status === 'submitted')
+            ? 'submitted'
+            : 'draft';
+      rows.push({
+        ...base,
+        key: `${jobId}-unassigned`,
+        shift: null,
+        manager: null,
+        crew: crewShape(anyEntry?.crew),
+        status
+      });
+      return;
+    }
+
+    shifts.forEach((shift) => {
+      const manager = (job.siteManagers || []).find((entry) => entry.shift === shift);
+      const entry = jobEntries.find((item) => item.shift === shift);
+      rows.push({
+        ...base,
+        key: `${jobId}-${shift}`,
+        shift,
+        manager: manager?.userId
+          ? {
+              id: String(manager.userId?._id || manager.userId?.id || manager.userId),
+              name: manager.userId?.name || null
+            }
+          : null,
+        crew: crewShape(entry?.crew),
+        status: shiftStatus(entry)
+      });
+    });
   });
+
+  return rows;
+};
 
 export const buildTotals = (entries, threshold = DEFAULT_RECOVERY_THRESHOLD) => {
   const totals = {

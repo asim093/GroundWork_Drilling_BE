@@ -98,7 +98,7 @@ const adminDashboard = async () => {
 
   const [jobEntries, bonusConfig] = await Promise.all([
     TimeLogEntry.find({ jobId: { $in: scheduledJobs.map((job) => job._id) } })
-      .select('jobId userId date status')
+      .select('jobId date shift status')
       .lean(),
     BonusConfig.getSingleton()
   ]);
@@ -195,7 +195,7 @@ const adminAttention = async () => {
   const jobEntries = await TimeLogEntry.find({
     jobId: { $in: scheduledJobs.map((job) => job._id) }
   })
-    .select('jobId userId date status')
+    .select('jobId date shift status')
     .lean();
 
   const missing = computeSchedulingRows(scheduledJobs, jobEntries).filter(
@@ -204,9 +204,11 @@ const adminAttention = async () => {
 
   return [
     ...missing.map((row) => ({
-      id: `missing-${row.jobNumber}`,
+      id: `missing-${row.jobNumber}-${row.shift || 'unassigned'}`,
       type: 'missing-submission',
-      title: `Job ${row.jobNumber} has no submission`,
+      title: row.shift
+        ? `Job ${row.jobNumber} — ${row.shift} shift has no submission`
+        : `Job ${row.jobNumber} has no manager assigned`,
       subtitle: row.clientName || 'Scheduled this month',
       to: '/admin/scheduling'
     })),

@@ -153,6 +153,7 @@ router.get(
     .optional()
     .isIn(['submitted', 'draft', 'missing'])
     .withMessage('Status must be submitted, draft or missing'),
+  query('shift').optional().isIn(['Day', 'Night']).withMessage('Shift must be Day or Night'),
   query('sort')
     .optional()
     .isIn(['scheduledDate', 'jobNumber', 'clientName'])
