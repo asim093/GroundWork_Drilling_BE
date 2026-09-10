@@ -13,7 +13,4 @@ const configured = dns.getServers();
 
 if (configured.length === 0 || configured.every(isLoopbackOrEmpty)) {
   dns.setServers(FALLBACK_SERVERS);
-  console.warn(
-    `System DNS resolver unusable (${JSON.stringify(configured)}); using public resolvers ${FALLBACK_SERVERS.join(', ')}`
-  );
 }
