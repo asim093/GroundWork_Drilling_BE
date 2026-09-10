@@ -48,7 +48,6 @@ router.get(
   query('status').optional().isIn(STATUS_VALUES).withMessage('Invalid status filter'),
   query('assignedUser').optional().isMongoId().withMessage('Invalid user id'),
   query('rigNumber').optional().isMongoId().withMessage('Invalid rig number'),
-  query('drillNumber').optional().isMongoId().withMessage('Invalid drill number'),
   query('search').optional().trim(),
   query('from').optional().isISO8601().withMessage('From must be a valid date'),
   query('to').optional().isISO8601().withMessage('To must be a valid date'),
@@ -64,7 +63,7 @@ router.post(
   body('clientName').trim().notEmpty().withMessage('Client name is required'),
   body('jobLocation').optional().trim(),
   body('clientJobNumber').optional().trim(),
-  body('drillNumber').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid drill number'),
+  body('drillNumber').optional({ nullable: true }).trim(),
   body('rigNumber').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid rig number'),
   body('scheduledDate')
     .optional({ values: 'falsy' })
@@ -96,7 +95,7 @@ router.patch(
   body('clientName').optional().trim().notEmpty().withMessage('Client name cannot be empty'),
   body('jobLocation').optional({ nullable: true }).trim(),
   body('clientJobNumber').optional({ nullable: true }).trim(),
-  body('drillNumber').optional({ nullable: true, checkFalsy: true }).isMongoId().withMessage('Invalid drill number'),
+  body('drillNumber').optional({ nullable: true }).trim(),
   body('rigNumber').optional({ nullable: true, checkFalsy: true }).isMongoId().withMessage('Invalid rig number'),
   body('scheduledDate')
     .optional({ values: 'falsy' })

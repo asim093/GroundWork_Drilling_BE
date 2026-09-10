@@ -1,13 +1,8 @@
-export const EMPLOYEE_TYPES = [
-  'Project Manager',
-  'Foreman',
-  'Supervisor',
-  'Driller',
-  'Driller Trainee',
-  'Helper',
-  'Assistant',
-  '5th Man'
-];
+export const MANAGER_TYPES = ['Project Manager', 'Supervisor', 'Foreman'];
+
+export const EMPLOYEE_TYPES = ['Driller', 'Driller Trainee', 'Helper', 'Assistant', '5th Man'];
+
+export const PERSONNEL_TYPES = [...MANAGER_TYPES, ...EMPLOYEE_TYPES];
 
 export const EMPLOYEE_CATEGORIES = ['Local', 'Expat'];
 
@@ -44,8 +39,6 @@ export const SEED_LOCATIONS = [
 ];
 
 export const SEED_RIG_NUMBERS = ['1', '2', '3', '4', '5', '6'];
-
-export const SEED_DRILL_NUMBERS = ['CME55', 'NQ', 'HQ3', 'Service Truck', 'HW/HWT', 'BQ'];
 
 export const SEED_CONSUMABLES = [
   'Screens',

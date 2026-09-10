@@ -12,7 +12,6 @@ import { makeMasterDataRouter } from './masterDataRoutes.js';
 import { makeMasterDataController } from '../controllers/masterDataController.js';
 import Location from '../models/Location.js';
 import RigNumber from '../models/RigNumber.js';
-import DrillNumber from '../models/DrillNumber.js';
 import Consumable from '../models/Consumable.js';
 import ActivityCategory from '../models/ActivityCategory.js';
 import Activity from '../models/Activity.js';
@@ -32,10 +31,6 @@ router.use('/locations', makeMasterDataRouter(makeMasterDataController(Location,
 router.use(
   '/rig-numbers',
   makeMasterDataRouter(makeMasterDataController(RigNumber, { entityName: 'rig number' }))
-);
-router.use(
-  '/drill-numbers',
-  makeMasterDataRouter(makeMasterDataController(DrillNumber, { entityName: 'drill number' }))
 );
 router.use(
   '/consumables',
@@ -92,7 +87,8 @@ router.use(
       entityName: 'employee',
       fields: [
         { name: 'employeeType', kind: 'string', filterParam: 'employeeType' },
-        { name: 'employeeCategory', kind: 'string', filterParam: 'employeeCategory' }
+        { name: 'employeeCategory', kind: 'string', filterParam: 'employeeCategory' },
+        { name: 'phone', kind: 'string' }
       ]
     }),
     {
@@ -104,11 +100,13 @@ router.use(
           .bail()
           .isIn(EMPLOYEE_TYPES)
           .withMessage('Invalid employee type'),
-        body('employeeCategory').optional({ nullable: true }).trim()
+        body('employeeCategory').optional({ nullable: true }).trim(),
+        body('phone').optional({ nullable: true }).trim()
       ],
       updateValidators: [
         body('employeeType').optional().isIn(EMPLOYEE_TYPES).withMessage('Invalid employee type'),
-        body('employeeCategory').optional({ nullable: true }).trim()
+        body('employeeCategory').optional({ nullable: true }).trim(),
+        body('phone').optional({ nullable: true }).trim()
       ]
     }
   )

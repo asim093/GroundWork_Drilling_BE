@@ -1,7 +1,6 @@
 import Job from '../models/Job.js';
 import User from '../models/User.js';
 import Employee from '../models/Employee.js';
-import DrillNumber from '../models/DrillNumber.js';
 import TimeLogEntry from '../models/TimeLogEntry.js';
 import { buildListOptions, buildPaginationMeta } from '../utils/listQuery.js';
 import { startOfUtcDay } from '../utils/timeLog.js';
@@ -109,13 +108,6 @@ const resolveRoster = async (rosterEmployeeIds) => {
 };
 
 const applyJobRelations = async (job, body) => {
-  if (body.drillNumber) {
-    const exists = await DrillNumber.exists({ _id: body.drillNumber });
-    if (!exists) {
-      return 'Selected drill number does not exist';
-    }
-  }
-
   const siteManagers = await resolveSiteManagers(body.siteManagers);
   if (siteManagers === null) {
     return 'One or more selected site managers are invalid';
@@ -146,8 +138,7 @@ const JOB_POPULATE = [
   { path: 'assignedUserIds', select: ASSIGNED_USER_PROJECTION },
   { path: 'siteManagers.userId', select: 'name email role active' },
   { path: 'rosterEmployeeIds', select: 'name employeeType employeeCategory active' },
-  RIG_NUMBER_POPULATE,
-  { path: 'drillNumber', select: 'name active' }
+  RIG_NUMBER_POPULATE
 ];
 
 export const listJobs = async (req, res) => {
@@ -173,10 +164,6 @@ export const listJobs = async (req, res) => {
     filter.rigNumber = req.query.rigNumber;
   }
 
-  if (req.query.drillNumber) {
-    filter.drillNumber = req.query.drillNumber;
-  }
-
   const term = String(req.query.search || '').trim();
   if (term) {
     const rx = { $regex: escapeRegex(term), $options: 'i' };
@@ -186,6 +173,7 @@ export const listJobs = async (req, res) => {
       { clientName: rx },
       { jobLocation: rx },
       { clientJobNumber: rx },
+      { drillNumber: rx },
       { assignedUserIds: { $in: matchedOperators.map((operator) => operator._id) } }
     ];
   }

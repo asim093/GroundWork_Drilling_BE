@@ -11,7 +11,7 @@ import { validate } from '../middleware/validate.js';
 import { authenticate } from '../middleware/auth.js';
 import { authorize } from '../middleware/authorize.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
-import { EMPLOYEE_TYPES } from '../config/masterData.js';
+import { MANAGER_TYPES } from '../config/masterData.js';
 
 const router = Router();
 
@@ -26,7 +26,7 @@ router.get(
     .withMessage('Status must be pending or active'),
   query('employeeType')
     .optional()
-    .isIn(EMPLOYEE_TYPES)
+    .isIn(MANAGER_TYPES)
     .withMessage('Invalid employee type'),
   query('sort')
     .optional()
@@ -44,7 +44,7 @@ router.post(
   body('phone').optional().trim(),
   body('employeeType')
     .optional({ values: 'falsy' })
-    .isIn(EMPLOYEE_TYPES)
+    .isIn(MANAGER_TYPES)
     .withMessage('Invalid employee type'),
   body('employeeCategory').optional({ nullable: true }).trim(),
   validate,
@@ -67,7 +67,7 @@ router.patch(
   body('phone').optional({ nullable: true }).trim(),
   body('employeeType')
     .optional({ nullable: true, checkFalsy: true })
-    .isIn(EMPLOYEE_TYPES)
+    .isIn(MANAGER_TYPES)
     .withMessage('Invalid employee type'),
   body('employeeCategory').optional({ nullable: true }).trim(),
   validate,
