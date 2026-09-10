@@ -488,15 +488,17 @@ export const submitTimeLog = async (req, res) => {
     return;
   }
 
-  if (entry.timeStarted && entry.timeFinished) {
+  const windowStart = entry.timeIn || entry.timeStarted;
+  const windowEnd = entry.timeOut || entry.timeFinished;
+  if (windowStart && windowEnd) {
     const outOfWindow = entry.activityLines.findIndex(
       (line) =>
-        !isWithinShift(line.timeFrom, entry.timeStarted, entry.timeFinished) ||
-        !isWithinShift(line.timeTo, entry.timeStarted, entry.timeFinished)
+        !isWithinShift(line.timeFrom, windowStart, windowEnd) ||
+        !isWithinShift(line.timeTo, windowStart, windowEnd)
     );
     if (outOfWindow !== -1) {
       res.status(422).json({
-        message: `Line ${outOfWindow + 1}: activity time is outside the shift's time started and time finished`
+        message: `Line ${outOfWindow + 1}: activity time is outside the on-site window (Time In to Time Out)`
       });
       return;
     }
