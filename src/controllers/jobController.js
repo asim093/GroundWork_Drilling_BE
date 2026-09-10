@@ -153,6 +153,12 @@ export const listJobs = async (req, res) => {
 
   if (req.query.status) {
     filter.status = req.query.status;
+  } else if (req.query.view === 'active') {
+    filter.status = { $in: ['scheduled', 'in-progress'] };
+  } else if (req.query.view === 'submitted') {
+    filter.status = 'submitted';
+  } else if (req.query.view === 'archived') {
+    filter.status = 'archived';
   } else {
     filter.status = { $ne: 'archived' };
   }

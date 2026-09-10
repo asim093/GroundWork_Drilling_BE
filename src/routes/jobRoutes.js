@@ -52,6 +52,10 @@ router.use(authorize('admin'));
 router.get(
   '/',
   query('status').optional().isIn(STATUS_VALUES).withMessage('Invalid status filter'),
+  query('view')
+    .optional()
+    .isIn(['active', 'submitted', 'archived'])
+    .withMessage('Invalid view'),
   query('assignedUser').optional().isMongoId().withMessage('Invalid user id'),
   query('rigNumber').optional().isMongoId().withMessage('Invalid rig number'),
   query('search').optional().trim(),
