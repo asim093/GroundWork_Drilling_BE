@@ -15,6 +15,7 @@ import { validate } from '../middleware/validate.js';
 import { authenticate } from '../middleware/auth.js';
 import { authorize } from '../middleware/authorize.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { SHIFTS } from '../config/masterData.js';
 
 const STATUS_VALUES = ['scheduled', 'in-progress', 'submitted', 'archived'];
 const SORT_FIELDS = ['scheduledDate', 'jobNumber', 'clientName', 'createdAt'];
@@ -47,6 +48,7 @@ router.get(
   query('status').optional().isIn(STATUS_VALUES).withMessage('Invalid status filter'),
   query('assignedUser').optional().isMongoId().withMessage('Invalid user id'),
   query('rigNumber').optional().isMongoId().withMessage('Invalid rig number'),
+  query('drillNumber').optional().isMongoId().withMessage('Invalid drill number'),
   query('search').optional().trim(),
   query('from').optional().isISO8601().withMessage('From must be a valid date'),
   query('to').optional().isISO8601().withMessage('To must be a valid date'),
@@ -62,7 +64,7 @@ router.post(
   body('clientName').trim().notEmpty().withMessage('Client name is required'),
   body('jobLocation').optional().trim(),
   body('clientJobNumber').optional().trim(),
-  body('drillType').optional().trim(),
+  body('drillNumber').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid drill number'),
   body('rigNumber').optional({ values: 'falsy' }).isMongoId().withMessage('Invalid rig number'),
   body('scheduledDate')
     .optional({ values: 'falsy' })
@@ -71,6 +73,11 @@ router.post(
   body('status').optional().isIn(STATUS_VALUES).withMessage('Invalid status'),
   body('assignedUserIds').optional().isArray().withMessage('assignedUserIds must be an array'),
   body('assignedUserIds.*').isMongoId().withMessage('Each operator id must be valid'),
+  body('siteManagers').optional().isArray().withMessage('siteManagers must be an array'),
+  body('siteManagers.*.userId').isMongoId().withMessage('Each site manager id must be valid'),
+  body('siteManagers.*.shift').isIn(SHIFTS).withMessage('Each site manager needs a valid shift'),
+  body('rosterEmployeeIds').optional().isArray().withMessage('rosterEmployeeIds must be an array'),
+  body('rosterEmployeeIds.*').isMongoId().withMessage('Each employee id must be valid'),
   validate,
   asyncHandler(createJob)
 );
@@ -89,7 +96,7 @@ router.patch(
   body('clientName').optional().trim().notEmpty().withMessage('Client name cannot be empty'),
   body('jobLocation').optional({ nullable: true }).trim(),
   body('clientJobNumber').optional({ nullable: true }).trim(),
-  body('drillType').optional({ nullable: true }).trim(),
+  body('drillNumber').optional({ nullable: true, checkFalsy: true }).isMongoId().withMessage('Invalid drill number'),
   body('rigNumber').optional({ nullable: true, checkFalsy: true }).isMongoId().withMessage('Invalid rig number'),
   body('scheduledDate')
     .optional({ values: 'falsy' })
@@ -98,6 +105,11 @@ router.patch(
   body('status').optional().isIn(STATUS_VALUES).withMessage('Invalid status'),
   body('assignedUserIds').optional().isArray().withMessage('assignedUserIds must be an array'),
   body('assignedUserIds.*').isMongoId().withMessage('Each operator id must be valid'),
+  body('siteManagers').optional().isArray().withMessage('siteManagers must be an array'),
+  body('siteManagers.*.userId').isMongoId().withMessage('Each site manager id must be valid'),
+  body('siteManagers.*.shift').isIn(SHIFTS).withMessage('Each site manager needs a valid shift'),
+  body('rosterEmployeeIds').optional().isArray().withMessage('rosterEmployeeIds must be an array'),
+  body('rosterEmployeeIds.*').isMongoId().withMessage('Each employee id must be valid'),
   validate,
   asyncHandler(updateJob)
 );

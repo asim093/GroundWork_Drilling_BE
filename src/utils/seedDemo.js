@@ -7,6 +7,7 @@ import Job from '../models/Job.js';
 import TimeLogEntry from '../models/TimeLogEntry.js';
 import Location from '../models/Location.js';
 import RigNumber from '../models/RigNumber.js';
+import DrillNumber from '../models/DrillNumber.js';
 import Activity from '../models/Activity.js';
 import Consumable from '../models/Consumable.js';
 import BonusConfig from '../models/BonusConfig.js';
@@ -84,14 +85,15 @@ const clearDemoData = async () => {
 };
 
 const loadReferenceData = async () => {
-  const [locations, rigs, bonusConfig, employees] = await Promise.all([
+  const [locations, rigs, drillNumbers, bonusConfig, employees] = await Promise.all([
     Location.find({ active: true }),
     RigNumber.find({ active: true }),
+    DrillNumber.find({ active: true }),
     BonusConfig.getSingleton(),
     Employee.find({ active: true })
   ]);
 
-  if (!locations.length || !rigs.length) {
+  if (!locations.length || !rigs.length || !drillNumbers.length) {
     throw new Error('Baseline master data is missing. Run "npm run seed" before "npm run seed:demo".');
   }
 
@@ -121,6 +123,7 @@ const loadReferenceData = async () => {
   return {
     locations,
     rigs,
+    drillNumbers,
     bonusConfig,
     employees,
     activityIds: activities.map((activity) => activity._id),
@@ -159,7 +162,7 @@ const buildJobPlan = () => [
   { suffix: '012', when: PREVIOUS, offsetDay: 12, status: 'scheduled', bothShifts: false }
 ];
 
-const createDemoJobs = async (siteManagers, employees, locations, rigs) => {
+const createDemoJobs = async (siteManagers, employees, locations, rigs, drillNumbers) => {
   const plan = buildJobPlan();
   const jobDocs = plan.map((entry, index) => {
     const dayManager = siteManagers[index % siteManagers.length];
@@ -179,6 +182,7 @@ const createDemoJobs = async (siteManagers, employees, locations, rigs) => {
       clientName: DEMO_CLIENTS[index % DEMO_CLIENTS.length],
       jobLocation: locations[index % locations.length].name,
       rigNumber: rigs[index % rigs.length]._id,
+      drillNumber: drillNumbers[index % drillNumbers.length]._id,
       scheduledDate: dayDate(entry.when, entry.offsetDay),
       status: entry.status,
       previousStatus: entry.status === 'archived' ? 'scheduled' : null,
@@ -444,7 +448,8 @@ export const seedDemo = async () => {
     siteManagers,
     reference.employees,
     reference.locations,
-    reference.rigs
+    reference.rigs,
+    reference.drillNumbers
   );
   await createDemoEntries(siteManagers, jobs, reference.activityIds, reference.consumables);
 

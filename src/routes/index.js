@@ -12,6 +12,7 @@ import { makeMasterDataRouter } from './masterDataRoutes.js';
 import { makeMasterDataController } from '../controllers/masterDataController.js';
 import Location from '../models/Location.js';
 import RigNumber from '../models/RigNumber.js';
+import DrillNumber from '../models/DrillNumber.js';
 import Consumable from '../models/Consumable.js';
 import ActivityCategory from '../models/ActivityCategory.js';
 import Activity from '../models/Activity.js';
@@ -31,6 +32,10 @@ router.use('/locations', makeMasterDataRouter(makeMasterDataController(Location,
 router.use(
   '/rig-numbers',
   makeMasterDataRouter(makeMasterDataController(RigNumber, { entityName: 'rig number' }))
+);
+router.use(
+  '/drill-numbers',
+  makeMasterDataRouter(makeMasterDataController(DrillNumber, { entityName: 'drill number' }))
 );
 router.use(
   '/consumables',

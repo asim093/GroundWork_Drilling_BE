@@ -15,7 +15,7 @@ const jobSchema = new mongoose.Schema(
     clientName: { type: String, required: true, trim: true },
     jobLocation: { type: String, trim: true },
     clientJobNumber: { type: String, trim: true },
-    drillType: { type: String, trim: true },
+    drillNumber: { type: mongoose.Schema.Types.ObjectId, ref: 'DrillNumber', default: null },
     rigNumber: { type: mongoose.Schema.Types.ObjectId, ref: 'RigNumber', default: null },
     scheduledDate: { type: Date },
     assignedUserIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],

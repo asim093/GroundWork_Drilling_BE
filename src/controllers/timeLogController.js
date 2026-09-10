@@ -22,7 +22,7 @@ import { startOfUtcDay, isWithinShift } from '../utils/timeLog.js';
 
 const SORTABLE_FIELDS = ['date', 'createdAt', 'updatedAt', 'status'];
 const JOB_PROJECTION =
-  'jobNumber clientName jobLocation clientJobNumber drillType scheduledDate status rigNumber';
+  'jobNumber clientName jobLocation clientJobNumber drillNumber scheduledDate status rigNumber';
 const JOB_POPULATE = { path: 'jobId', select: JOB_PROJECTION, populate: { path: 'rigNumber', select: 'name' } };
 const ACTIVITY_POPULATE = {
   path: 'activityLines.activityId',

@@ -7,6 +7,7 @@ import User from '../models/User.js';
 import Employee from '../models/Employee.js';
 import Location from '../models/Location.js';
 import RigNumber from '../models/RigNumber.js';
+import DrillNumber from '../models/DrillNumber.js';
 import Consumable from '../models/Consumable.js';
 import ActivityCategory from '../models/ActivityCategory.js';
 import Activity from '../models/Activity.js';
@@ -15,6 +16,7 @@ import TimeLogEntry from '../models/TimeLogEntry.js';
 import {
   SEED_LOCATIONS,
   SEED_RIG_NUMBERS,
+  SEED_DRILL_NUMBERS,
   SEED_CONSUMABLES,
   SEED_ACTIVITY_CATEGORIES,
   SEED_ACTIVITIES,
@@ -155,6 +157,7 @@ export const seedBase = async () => {
 
   await seedNamedList(Location, SEED_LOCATIONS, 'Locations');
   await seedNamedList(RigNumber, SEED_RIG_NUMBERS, 'Rig numbers');
+  await seedNamedList(DrillNumber, SEED_DRILL_NUMBERS, 'Drill numbers');
   await seedConsumables();
   await seedActivities();
   await seedEmployees();

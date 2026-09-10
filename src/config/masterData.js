@@ -45,6 +45,8 @@ export const SEED_LOCATIONS = [
 
 export const SEED_RIG_NUMBERS = ['1', '2', '3', '4', '5', '6'];
 
+export const SEED_DRILL_NUMBERS = ['CME55', 'NQ', 'HQ3', 'Service Truck', 'HW/HWT', 'BQ'];
+
 export const SEED_CONSUMABLES = [
   'Screens',
   'Riser',

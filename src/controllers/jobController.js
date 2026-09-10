@@ -1,8 +1,11 @@
 import Job from '../models/Job.js';
 import User from '../models/User.js';
+import Employee from '../models/Employee.js';
+import DrillNumber from '../models/DrillNumber.js';
 import TimeLogEntry from '../models/TimeLogEntry.js';
 import { buildListOptions, buildPaginationMeta } from '../utils/listQuery.js';
 import { startOfUtcDay } from '../utils/timeLog.js';
+import { SHIFTS } from '../config/masterData.js';
 
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -21,7 +24,7 @@ const EDITABLE_FIELDS = [
   'clientName',
   'jobLocation',
   'clientJobNumber',
-  'drillType',
+  'drillNumber',
   'rigNumber',
   'scheduledDate',
   'status'
@@ -55,9 +58,96 @@ const resolveAssignments = async (userIds) => {
   return unique;
 };
 
+const resolveSiteManagers = async (siteManagers) => {
+  if (!Array.isArray(siteManagers)) {
+    return undefined;
+  }
+
+  const seen = new Set();
+  const cleaned = [];
+
+  for (const entry of siteManagers) {
+    const userId = String(entry?.userId || '');
+    const shift = entry?.shift;
+
+    if (!userId || !SHIFTS.includes(shift)) {
+      return null;
+    }
+
+    const key = `${userId}|${shift}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      cleaned.push({ userId, shift });
+    }
+  }
+
+  const uniqueUserIds = [...new Set(cleaned.map((entry) => entry.userId))];
+  if (uniqueUserIds.length > 0) {
+    const count = await User.countDocuments({ _id: { $in: uniqueUserIds }, role: 'operator' });
+    if (count !== uniqueUserIds.length) {
+      return null;
+    }
+  }
+
+  return cleaned;
+};
+
+const resolveRoster = async (rosterEmployeeIds) => {
+  if (!Array.isArray(rosterEmployeeIds)) {
+    return undefined;
+  }
+
+  const unique = [...new Set(rosterEmployeeIds.map(String))];
+  if (unique.length > 0) {
+    const count = await Employee.countDocuments({ _id: { $in: unique } });
+    if (count !== unique.length) {
+      return null;
+    }
+  }
+
+  return unique;
+};
+
+const applyJobRelations = async (job, body) => {
+  if (body.drillNumber) {
+    const exists = await DrillNumber.exists({ _id: body.drillNumber });
+    if (!exists) {
+      return 'Selected drill number does not exist';
+    }
+  }
+
+  const siteManagers = await resolveSiteManagers(body.siteManagers);
+  if (siteManagers === null) {
+    return 'One or more selected site managers are invalid';
+  }
+  if (siteManagers !== undefined) {
+    job.siteManagers = siteManagers;
+    job.assignedUserIds = [...new Set(siteManagers.map((entry) => entry.userId))];
+  } else if (Array.isArray(body.assignedUserIds)) {
+    const assignments = await resolveAssignments(body.assignedUserIds);
+    if (assignments === null) {
+      return 'One or more selected operators do not exist';
+    }
+    job.assignedUserIds = assignments;
+  }
+
+  const roster = await resolveRoster(body.rosterEmployeeIds);
+  if (roster === null) {
+    return 'One or more selected employees do not exist';
+  }
+  if (roster !== undefined) {
+    job.rosterEmployeeIds = roster;
+  }
+
+  return null;
+};
+
 const JOB_POPULATE = [
   { path: 'assignedUserIds', select: ASSIGNED_USER_PROJECTION },
-  RIG_NUMBER_POPULATE
+  { path: 'siteManagers.userId', select: 'name email role active' },
+  { path: 'rosterEmployeeIds', select: 'name employeeType employeeCategory active' },
+  RIG_NUMBER_POPULATE,
+  { path: 'drillNumber', select: 'name active' }
 ];
 
 export const listJobs = async (req, res) => {
@@ -81,6 +171,10 @@ export const listJobs = async (req, res) => {
 
   if (req.query.rigNumber) {
     filter.rigNumber = req.query.rigNumber;
+  }
+
+  if (req.query.drillNumber) {
+    filter.drillNumber = req.query.drillNumber;
   }
 
   const term = String(req.query.search || '').trim();
@@ -109,12 +203,7 @@ export const listJobs = async (req, res) => {
   }
 
   const [data, total] = await Promise.all([
-    Job.find(filter)
-      .sort(sort)
-      .skip(skip)
-      .limit(limit)
-      .populate('assignedUserIds', ASSIGNED_USER_PROJECTION)
-      .populate(RIG_NUMBER_POPULATE),
+    Job.find(filter).sort(sort).skip(skip).limit(limit).populate(JOB_POPULATE),
     Job.countDocuments(filter)
   ]);
 
@@ -181,9 +270,7 @@ export const getAssignedJob = async (req, res) => {
 };
 
 export const getJob = async (req, res) => {
-  const job = await Job.findById(req.params.id)
-    .populate('assignedUserIds', ASSIGNED_USER_PROJECTION)
-    .populate(RIG_NUMBER_POPULATE);
+  const job = await Job.findById(req.params.id).populate(JOB_POPULATE);
 
   if (!job) {
     res.status(404).json({ message: 'Job not found' });
@@ -196,15 +283,10 @@ export const getJob = async (req, res) => {
 export const createJob = async (req, res) => {
   const job = new Job(pickEditableFields(req.body));
 
-  if (Array.isArray(req.body.assignedUserIds)) {
-    const assignments = await resolveAssignments(req.body.assignedUserIds);
-
-    if (assignments === null) {
-      res.status(422).json({ message: 'One or more selected operators do not exist' });
-      return;
-    }
-
-    job.assignedUserIds = assignments;
+  const relationError = await applyJobRelations(job, req.body);
+  if (relationError) {
+    res.status(422).json({ message: relationError });
+    return;
   }
 
   await job.save();
@@ -223,15 +305,10 @@ export const updateJob = async (req, res) => {
 
   Object.assign(job, pickEditableFields(req.body));
 
-  if (Array.isArray(req.body.assignedUserIds)) {
-    const assignments = await resolveAssignments(req.body.assignedUserIds);
-
-    if (assignments === null) {
-      res.status(422).json({ message: 'One or more selected operators do not exist' });
-      return;
-    }
-
-    job.assignedUserIds = assignments;
+  const relationError = await applyJobRelations(job, req.body);
+  if (relationError) {
+    res.status(422).json({ message: relationError });
+    return;
   }
 
   await job.save();
