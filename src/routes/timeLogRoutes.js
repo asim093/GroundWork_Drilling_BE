@@ -170,6 +170,7 @@ router.get(
   query('groupBy').optional().isIn(['employee', 'job']).withMessage('groupBy must be employee or job'),
   query('job').optional().isMongoId().withMessage('Invalid job id'),
   query('user').optional().isMongoId().withMessage('Invalid user id'),
+  query('employee').optional().isMongoId().withMessage('Invalid employee id'),
   validate,
   asyncHandler(reportsSummary)
 );
@@ -181,6 +182,7 @@ router.get(
   query('groupBy').optional().isIn(['employee', 'job']).withMessage('groupBy must be employee or job'),
   query('job').optional().isMongoId().withMessage('Invalid job id'),
   query('user').optional().isMongoId().withMessage('Invalid user id'),
+  query('employee').optional().isMongoId().withMessage('Invalid employee id'),
   exportFormatValidator,
   validate,
   asyncHandler(reportsSummaryExport)
@@ -193,6 +195,7 @@ router.post(
   query('groupBy').optional().isIn(['employee', 'job']).withMessage('groupBy must be employee or job'),
   query('job').optional().isMongoId().withMessage('Invalid job id'),
   query('user').optional().isMongoId().withMessage('Invalid user id'),
+  query('employee').optional().isMongoId().withMessage('Invalid employee id'),
   exportFormatValidator,
   ...chartBodyValidators,
   validate,

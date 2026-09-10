@@ -1,6 +1,7 @@
 import TimeLogEntry from '../models/TimeLogEntry.js';
 import Job from '../models/Job.js';
 import User from '../models/User.js';
+import Employee from '../models/Employee.js';
 import BonusConfig from '../models/BonusConfig.js';
 import { buildListOptions, buildPaginationMeta } from '../utils/listQuery.js';
 import {
@@ -292,11 +293,16 @@ const loadAdminReport = async (query) => {
   const { from, to } = resolveDateRange(query);
 
   const extra = {};
-  let scope = 'All operators';
+  let scope = 'All crew';
   if (query.user) {
     extra.userId = query.user;
     const target = await User.findById(query.user).select('name');
-    scope = target ? `Operator: ${target.name}` : 'Operator';
+    scope = target ? `Manager: ${target.name}` : 'Manager';
+  }
+  if (query.employee) {
+    extra['crew.employeeId'] = query.employee;
+    const target = await Employee.findById(query.employee).select('name');
+    scope = target ? `Employee: ${target.name}` : 'Employee';
   }
   if (query.job) {
     extra.jobId = query.job;
