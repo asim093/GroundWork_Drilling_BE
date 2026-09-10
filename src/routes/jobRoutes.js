@@ -25,7 +25,7 @@ router.use(authenticate);
 
 router.get(
   '/assigned',
-  query('status').optional().isIn(STATUS_VALUES).withMessage('Invalid status filter'),
+  query('view').optional().isIn(['active', 'completed']).withMessage('Invalid view'),
   query('search').optional().trim(),
   query('rig').optional().isMongoId().withMessage('Invalid rig number'),
   query('from').optional().isISO8601().withMessage('From must be a valid date'),

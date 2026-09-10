@@ -206,11 +206,13 @@ export const listAssignedJobs = async (req, res) => {
     defaultOrder: 'desc'
   });
 
-  const filter = { assignedUserIds: req.user.id, status: { $ne: 'archived' } };
-
-  if (req.query.status) {
-    filter.status = req.query.status;
-  }
+  const filter = {
+    assignedUserIds: req.user.id,
+    status:
+      req.query.view === 'completed'
+        ? 'submitted'
+        : { $in: ['scheduled', 'in-progress'] }
+  };
 
   if (req.query.rig) {
     filter.rigNumber = req.query.rig;
