@@ -69,6 +69,10 @@ const entryBodyValidators = [
     .optional({ nullable: true, checkFalsy: true })
     .isIn(['Day', 'Night'])
     .withMessage('Shift must be Day or Night'),
+  body('crew').optional().isArray().withMessage('Crew must be a list'),
+  body('crew.*.employeeId').isMongoId().withMessage('Each crew member must be a valid employee'),
+  body('crew.*.timeIn').optional({ nullable: true }).isString().withMessage('Crew time in must be a time value'),
+  body('crew.*.timeOut').optional({ nullable: true }).isString().withMessage('Crew time out must be a time value'),
   ...NUMBER_FIELDS.map((field) =>
     body(field)
       .optional({ nullable: true })
@@ -231,6 +235,7 @@ router.post(
   '/',
   body('jobId').isMongoId().withMessage('A valid job id is required'),
   body('date').isISO8601().withMessage('Date is required and must be a valid date'),
+  body('shift').isIn(['Day', 'Night']).withMessage('Shift is required and must be Day or Night'),
   ...entryBodyValidators,
   validate,
   asyncHandler(createTimeLog)

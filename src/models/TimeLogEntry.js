@@ -49,17 +49,22 @@ const consumableUsageSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const crewMemberSchema = new mongoose.Schema(
+  {
+    employeeId: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee', required: true },
+    timeIn: { type: String, trim: true, default: '' },
+    timeOut: { type: String, trim: true, default: '' }
+  },
+  { _id: false }
+);
+
 const timeLogEntrySchema = new mongoose.Schema(
   {
     jobId: { type: mongoose.Schema.Types.ObjectId, ref: 'Job', required: true },
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     date: { type: Date, required: true },
-    shift: { type: String, enum: SHIFTS, default: null },
-    timeIn: { type: String, trim: true, default: '' },
-    timeOut: { type: String, trim: true, default: '' },
-    assistantName: { type: String, trim: true, default: '' },
-    assistantTimeIn: { type: String, trim: true, default: '' },
-    assistantTimeOut: { type: String, trim: true, default: '' },
+    shift: { type: String, enum: SHIFTS, required: true },
+    crew: { type: [crewMemberSchema], default: [] },
     timeStarted: { type: String, trim: true, default: '' },
     timeFinished: { type: String, trim: true, default: '' },
     hoursOnSite: { type: Number, default: null },
@@ -91,9 +96,8 @@ timeLogEntrySchema.pre('validate', function normalizeDate(next) {
   next();
 });
 
-timeLogEntrySchema.index({ jobId: 1, userId: 1, status: 1 });
 timeLogEntrySchema.index({ userId: 1, date: -1 });
-timeLogEntrySchema.index({ jobId: 1, userId: 1, date: 1 }, { unique: true });
+timeLogEntrySchema.index({ jobId: 1, date: 1, shift: 1 }, { unique: true });
 
 timeLogEntrySchema.virtual('metersDrilled').get(function metersDrilled() {
   return entryMetersDrilled(this);

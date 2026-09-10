@@ -237,24 +237,36 @@ const buildActivityLines = (totalMeters, recoveryRatio, activityIds, seed) => {
   return lines;
 };
 
+const clockGap = (from, to) => {
+  const [fh, fm] = from.split(':').map(Number);
+  const [th, tm] = to.split(':').map(Number);
+  let diff = th + tm / 60 - (fh + fm / 60);
+  if (diff < 0) {
+    diff += 24;
+  }
+  return round1(diff);
+};
+
 const buildEntry = ({ job, userId, shift, when, day, status, meters, recoveryRatio, seed, activityIds, consumables }) => {
   const lines = buildActivityLines(meters, recoveryRatio, activityIds, seed);
-  const lineHours = lines.length * 4.5;
   const isDay = shift === 'Day';
+  const timeStarted = isDay ? '07:00' : '19:00';
+  const timeFinished = isDay ? '18:00' : '06:00';
+  const crewIn = isDay ? '06:30' : '18:30';
+  const crewOut = isDay ? '18:30' : '06:30';
+  const crew = (job.rosterEmployeeIds || [])
+    .slice(0, 2 + (seed % 2))
+    .map((employeeId) => ({ employeeId, timeIn: crewIn, timeOut: crewOut }));
 
   return {
     jobId: job._id,
     userId,
     date: dayDate(when, day),
     shift,
-    timeIn: isDay ? '06:30' : '18:30',
-    timeOut: isDay ? '18:30' : '06:30',
-    assistantName: '',
-    assistantTimeIn: '',
-    assistantTimeOut: '',
-    timeStarted: isDay ? '07:00' : '19:00',
-    timeFinished: isDay ? '18:00' : '06:00',
-    hoursOnSite: round1(lineHours + between(0.5, 1.6)),
+    crew,
+    timeStarted,
+    timeFinished,
+    hoursOnSite: clockGap(timeStarted, timeFinished),
     standbyHours: seed % 4 === 0 ? round1(between(0.5, 2)) : null,
     otherHours: seed % 6 === 0 ? round1(between(0.5, 1)) : null,
     mileageStart: null,

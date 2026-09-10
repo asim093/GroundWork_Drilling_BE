@@ -22,23 +22,27 @@ import { startOfUtcDay, isWithinShift } from '../utils/timeLog.js';
 
 const SORTABLE_FIELDS = ['date', 'createdAt', 'updatedAt', 'status'];
 const JOB_PROJECTION =
-  'jobNumber clientName jobLocation clientJobNumber drillNumber scheduledDate status rigNumber';
-const JOB_POPULATE = { path: 'jobId', select: JOB_PROJECTION, populate: { path: 'rigNumber', select: 'name' } };
+  'jobNumber clientName jobLocation clientJobNumber drillNumber scheduledDate status rigNumber siteManagers rosterEmployeeIds';
+const JOB_POPULATE = {
+  path: 'jobId',
+  select: JOB_PROJECTION,
+  populate: [
+    { path: 'rigNumber', select: 'name' },
+    { path: 'rosterEmployeeIds', select: 'name employeeType' }
+  ]
+};
 const ACTIVITY_POPULATE = {
   path: 'activityLines.activityId',
   select: 'name categoryId',
   populate: { path: 'categoryId', select: 'name' }
 };
+const CREW_POPULATE = { path: 'crew.employeeId', select: 'name employeeType' };
 const USER_PROJECTION = 'name email role employeeType employeeCategory';
 
 const EDITABLE_FIELDS = [
   'date',
   'shift',
-  'timeIn',
-  'timeOut',
-  'assistantName',
-  'assistantTimeIn',
-  'assistantTimeOut',
+  'crew',
   'timeStarted',
   'timeFinished',
   'hoursOnSite',
@@ -65,7 +69,12 @@ const pickEditableFields = (body) => {
 };
 
 const populateEntry = (entry) =>
-  entry.populate([JOB_POPULATE, { path: 'userId', select: USER_PROJECTION }, ACTIVITY_POPULATE]);
+  entry.populate([
+    JOB_POPULATE,
+    { path: 'userId', select: USER_PROJECTION },
+    ACTIVITY_POPULATE,
+    CREW_POPULATE
+  ]);
 
 const buildDateRange = (query) => {
   const range = {};
@@ -141,7 +150,8 @@ export const getTimeLog = async (req, res) => {
   const entry = await TimeLogEntry.findById(req.params.id)
     .populate(JOB_POPULATE)
     .populate('userId', USER_PROJECTION)
-    .populate(ACTIVITY_POPULATE);
+    .populate(ACTIVITY_POPULATE)
+    .populate(CREW_POPULATE);
 
   if (!entry) {
     res.status(404).json({ message: 'Time log not found' });
@@ -159,7 +169,7 @@ export const getTimeLog = async (req, res) => {
 };
 
 export const createTimeLog = async (req, res) => {
-  const { jobId } = req.body;
+  const { jobId, shift } = req.body;
   const job = await Job.findById(jobId);
 
   if (!job) {
@@ -167,10 +177,12 @@ export const createTimeLog = async (req, res) => {
     return;
   }
 
-  const isAssigned = job.assignedUserIds.some((id) => id.equals(req.user.id));
+  const managesShift = (job.siteManagers || []).some(
+    (manager) => manager.userId.equals(req.user.id) && manager.shift === shift
+  );
 
-  if (!isAssigned) {
-    res.status(403).json({ message: 'You are not assigned to this job' });
+  if (!managesShift) {
+    res.status(403).json({ message: `You are not the site manager for the ${shift} shift on this job` });
     return;
   }
 
@@ -180,7 +192,7 @@ export const createTimeLog = async (req, res) => {
   }
 
   const day = startOfUtcDay(req.body.date || new Date());
-  const existing = await TimeLogEntry.findOne({ jobId, userId: req.user.id, date: day });
+  const existing = await TimeLogEntry.findOne({ jobId, date: day, shift });
 
   if (existing) {
     await populateEntry(existing);
@@ -442,15 +454,30 @@ export const submitTimeLog = async (req, res) => {
     return;
   }
 
-  if (entry.timeIn && entry.timeOut) {
+  if (!entry.crew.length) {
+    res.status(422).json({ message: 'Add at least one crew member before submitting' });
+    return;
+  }
+
+  const halfTimedCrew = entry.crew.findIndex(
+    (member) => Boolean(member.timeIn) !== Boolean(member.timeOut)
+  );
+  if (halfTimedCrew !== -1) {
+    res.status(422).json({
+      message: `Crew member ${halfTimedCrew + 1}: enter both time in and time out, or leave both blank`
+    });
+    return;
+  }
+
+  if (entry.timeStarted && entry.timeFinished) {
     const outOfWindow = entry.activityLines.findIndex(
       (line) =>
-        !isWithinShift(line.timeFrom, entry.timeIn, entry.timeOut) ||
-        !isWithinShift(line.timeTo, entry.timeIn, entry.timeOut)
+        !isWithinShift(line.timeFrom, entry.timeStarted, entry.timeFinished) ||
+        !isWithinShift(line.timeTo, entry.timeStarted, entry.timeFinished)
     );
     if (outOfWindow !== -1) {
       res.status(422).json({
-        message: `Line ${outOfWindow + 1}: activity time is outside your Time in and Time out`
+        message: `Line ${outOfWindow + 1}: activity time is outside the shift's time started and time finished`
       });
       return;
     }

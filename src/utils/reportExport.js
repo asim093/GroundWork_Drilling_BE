@@ -93,7 +93,7 @@ export const buildReportWorkbookBuffer = async (report, meta) => {
     const isUser = report.groupBy === 'user';
     const sheet = workbook.addWorksheet(isUser ? 'By user' : 'By job');
     sheet.columns = [
-      { header: isUser ? 'Operator' : 'Job', key: 'label', width: 30 },
+      { header: isUser ? 'Site manager' : 'Job', key: 'label', width: 30 },
       ...(isUser ? [{ header: 'Employee type', key: 'employeeType', width: 18 }] : []),
       { header: 'Entries', key: 'entries', width: 10 },
       { header: 'Hours', key: 'hours', width: 10 },
@@ -134,7 +134,7 @@ export const buildReportWorkbookBuffer = async (report, meta) => {
     { header: 'Shift', key: 'shift', width: 8 },
     { header: 'Job #', key: 'jobNumber', width: 14 },
     { header: 'Client', key: 'client', width: 20 },
-    { header: 'Operator', key: 'operator', width: 20 },
+    { header: 'Site manager', key: 'operator', width: 20 },
     { header: 'Hours', key: 'hours', width: 12 },
     { header: 'Drilled (m)', key: 'drilled', width: 12 },
     { header: 'Recovered (m)', key: 'recovered', width: 14 },
@@ -600,7 +600,7 @@ export const buildReportPdfBuffer = (report, meta) =>
       const isUser = report.groupBy === 'user';
       sectionTitle(doc, isUser ? 'Breakdown by user' : 'Breakdown by job', 110);
       const columns = [
-        { header: isUser ? 'Operator' : 'Job', weight: 2.6 },
+        { header: isUser ? 'Site manager' : 'Job', weight: 2.6 },
         ...(isUser ? [{ header: 'Type', weight: 1.3 }] : []),
         { header: 'Ent.', weight: 0.85, align: 'right' },
         { header: 'Hrs', weight: 0.85, align: 'right' },
@@ -634,7 +634,7 @@ export const buildReportPdfBuffer = (report, meta) =>
         [
           { header: 'Date', weight: 1.4 },
           { header: 'Job #', weight: 1.6 },
-          { header: 'Operator', weight: 2.2 },
+          { header: 'Site manager', weight: 2.2 },
           { header: 'Hours', weight: 1, align: 'right' },
           { header: 'Drilled', weight: 1.1, align: 'right' },
           { header: 'Recov.', weight: 1.1, align: 'right' },

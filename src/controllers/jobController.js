@@ -259,7 +259,10 @@ export const getAssignedJob = async (req, res) => {
     _id: req.params.id,
     assignedUserIds: req.user.id,
     status: { $ne: 'archived' }
-  }).populate(RIG_NUMBER_POPULATE);
+  })
+    .populate(RIG_NUMBER_POPULATE)
+    .populate({ path: 'siteManagers.userId', select: 'name' })
+    .populate({ path: 'rosterEmployeeIds', select: 'name employeeType active' });
 
   if (!job) {
     res.status(404).json({ message: 'Job not found or not assigned to you' });

@@ -3,8 +3,7 @@ import { authenticate } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import {
   listCatalogActivities,
-  listCatalogConsumables,
-  listCatalogAssistants
+  listCatalogConsumables
 } from '../controllers/catalogController.js';
 
 const router = Router();
@@ -13,6 +12,5 @@ router.use(authenticate);
 
 router.get('/activities', asyncHandler(listCatalogActivities));
 router.get('/consumables', asyncHandler(listCatalogConsumables));
-router.get('/assistants', asyncHandler(listCatalogAssistants));
 
 export default router;
