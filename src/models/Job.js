@@ -1,4 +1,13 @@
 import mongoose from 'mongoose';
+import { SHIFTS } from '../config/masterData.js';
+
+const jobSiteManagerSchema = new mongoose.Schema(
+  {
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    shift: { type: String, enum: SHIFTS, required: true }
+  },
+  { _id: false }
+);
 
 const jobSchema = new mongoose.Schema(
   {
@@ -10,6 +19,8 @@ const jobSchema = new mongoose.Schema(
     rigNumber: { type: mongoose.Schema.Types.ObjectId, ref: 'RigNumber', default: null },
     scheduledDate: { type: Date },
     assignedUserIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    siteManagers: { type: [jobSiteManagerSchema], default: [] },
+    rosterEmployeeIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Employee' }],
     status: {
       type: String,
       enum: ['scheduled', 'in-progress', 'submitted', 'archived'],

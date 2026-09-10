@@ -15,6 +15,8 @@ import RigNumber from '../models/RigNumber.js';
 import Consumable from '../models/Consumable.js';
 import ActivityCategory from '../models/ActivityCategory.js';
 import Activity from '../models/Activity.js';
+import Employee from '../models/Employee.js';
+import { EMPLOYEE_TYPES } from '../config/masterData.js';
 
 const router = Router();
 
@@ -74,6 +76,34 @@ router.use(
       ],
       updateValidators: [
         body('categoryId').optional().isMongoId().withMessage('Invalid category')
+      ]
+    }
+  )
+);
+router.use(
+  '/employees',
+  makeMasterDataRouter(
+    makeMasterDataController(Employee, {
+      entityName: 'employee',
+      fields: [
+        { name: 'employeeType', kind: 'string', filterParam: 'employeeType' },
+        { name: 'employeeCategory', kind: 'string', filterParam: 'employeeCategory' }
+      ]
+    }),
+    {
+      createValidators: [
+        body('employeeType')
+          .trim()
+          .notEmpty()
+          .withMessage('Employee type is required')
+          .bail()
+          .isIn(EMPLOYEE_TYPES)
+          .withMessage('Invalid employee type'),
+        body('employeeCategory').optional({ nullable: true }).trim()
+      ],
+      updateValidators: [
+        body('employeeType').optional().isIn(EMPLOYEE_TYPES).withMessage('Invalid employee type'),
+        body('employeeCategory').optional({ nullable: true }).trim()
       ]
     }
   )

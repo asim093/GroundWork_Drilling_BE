@@ -1,6 +1,8 @@
+import { pathToFileURL } from 'node:url';
 import mongoose from 'mongoose';
 import { connectDatabase } from '../config/db.js';
 import User from '../models/User.js';
+import Employee from '../models/Employee.js';
 import Job from '../models/Job.js';
 import TimeLogEntry from '../models/TimeLogEntry.js';
 import Location from '../models/Location.js';
@@ -12,27 +14,17 @@ import BonusConfig from '../models/BonusConfig.js';
 const DEMO_DOMAIN = 'groundworkdrilling.demo';
 const DEMO_JOB_PREFIX = 'DEMO-';
 const DEMO_PASSWORD = '12345678';
-const PERSONAL_TEST_EMAIL = 'asimusman8899@gmail.com';
 
 const round1 = (value) => Math.round(value * 10) / 10;
 const between = (min, max) => min + Math.random() * (max - min);
 const pad = (value) => String(value).padStart(2, '0');
 const emailFor = (name) => `${name.toLowerCase().split(' ').join('.')}@${DEMO_DOMAIN}`;
 
-const DEMO_OPERATORS = [
-  { name: 'Sam Alpha', employeeType: 'Driller' },
-  { name: 'Jordan Bravo', employeeType: 'Driller' },
-  { name: 'Casey Charlie', employeeType: 'Helper' },
-  { name: 'Riley Delta', employeeType: 'Helper' },
-  { name: 'Morgan Echo', employeeType: 'Supervisor' },
-  { name: 'Taylor Foxtrot', employeeType: 'Supervisor' },
-  { name: 'Jamie Golf', employeeType: 'Foreman' },
-  { name: 'Avery Hotel', employeeType: 'Project Manager' },
-  { name: 'Quinn India', employeeType: 'Driller Trainee' },
-  { name: 'Drew Juliet', employeeType: '5th Man' }
+const DEMO_SITE_MANAGERS = [
+  { name: 'Morgan Reyes', employeeType: 'Supervisor' },
+  { name: 'Taylor Quinn', employeeType: 'Supervisor' },
+  { name: 'Jordan Blake', employeeType: 'Foreman' }
 ];
-
-const DEMO_ASSISTANTS = ['Kai Kilo', 'Nova Lima', 'Reed Mike'];
 
 const DEMO_CLIENTS = [
   'Aurora Metals',
@@ -60,71 +52,16 @@ const dayDate = ({ year, month }, day) => new Date(Date.UTC(year, month, day, 0,
 const spreadDay = (index) => 1 + ((index * 11) % 28);
 
 const BONUS_PLAN = {
-  'Sam Alpha': { eligibleMeters: 560, eligibleCount: 8, missCount: 2, draftCount: 1, prevCount: 6 },
-  'Jordan Bravo': { eligibleMeters: 1250, eligibleCount: 12, missCount: 2, draftCount: 1, prevCount: 6 },
-  'Casey Charlie': { eligibleMeters: 520, eligibleCount: 8, missCount: 1, draftCount: 1, prevCount: 5 },
-  'Riley Delta': { eligibleMeters: 1160, eligibleCount: 11, missCount: 2, draftCount: 1, prevCount: 5 },
-  'Morgan Echo': { eligibleMeters: 3900, eligibleCount: 15, missCount: 2, draftCount: 1, prevCount: 6 },
-  'Taylor Foxtrot': { eligibleMeters: 6400, eligibleCount: 16, missCount: 2, draftCount: 1, prevCount: 6 }
+  'Morgan Reyes': { eligibleMeters: 3200, eligibleCount: 12, missCount: 3, draftCount: 1, prevCount: 6 },
+  'Taylor Quinn': { eligibleMeters: 6500, eligibleCount: 15, missCount: 2, draftCount: 1, prevCount: 6 },
+  'Jordan Blake': { eligibleMeters: 900, eligibleCount: 6, missCount: 2, draftCount: 2, prevCount: 4 }
 };
 const DEFAULT_PLAN = {
-  eligibleMeters: 380,
-  eligibleCount: 4,
+  eligibleMeters: 700,
+  eligibleCount: 5,
   missCount: 1,
   draftCount: 1,
   prevCount: 3
-};
-
-const removePersonalTestAccount = async () => {
-  const account = await User.findOne({ email: PERSONAL_TEST_EMAIL });
-  if (!account) {
-    console.log(`Personal test account ${PERSONAL_TEST_EMAIL} not present`);
-    return;
-  }
-
-  const entries = await TimeLogEntry.deleteMany({ userId: account._id });
-  const touchedJobIds = (await Job.find({ assignedUserIds: account._id }).select('_id')).map(
-    (job) => job._id
-  );
-  await Job.updateMany(
-    { assignedUserIds: account._id },
-    { $pull: { assignedUserIds: account._id } }
-  );
-
-  const orphanedJobs = await Job.find({
-    _id: { $in: touchedJobIds },
-    assignedUserIds: { $size: 0 }
-  }).select('_id');
-  const orphanedJobIds = orphanedJobs.map((job) => job._id);
-  await TimeLogEntry.deleteMany({ jobId: { $in: orphanedJobIds } });
-  const removedJobs = await Job.deleteMany({ _id: { $in: orphanedJobIds } });
-
-  await User.deleteOne({ _id: account._id });
-  console.log(
-    `Removed personal test account ${PERSONAL_TEST_EMAIL} — ${entries.deletedCount} time logs, ${removedJobs.deletedCount} now-empty job(s)`
-  );
-};
-
-const removeStrandedTestJobs = async () => {
-  const unassigned = await Job.find({
-    assignedUserIds: { $size: 0 },
-    jobNumber: { $not: { $regex: `^${DEMO_JOB_PREFIX}` } }
-  }).select('_id jobNumber');
-
-  const strandedIds = [];
-  for (const job of unassigned) {
-    const hasEntries = await TimeLogEntry.exists({ jobId: job._id });
-    if (!hasEntries) {
-      strandedIds.push(job._id);
-    }
-  }
-
-  if (!strandedIds.length) {
-    return;
-  }
-
-  const removed = await Job.deleteMany({ _id: { $in: strandedIds } });
-  console.log(`Removed ${removed.deletedCount} stranded unassigned non-demo test job(s)`);
 };
 
 const clearDemoData = async () => {
@@ -142,64 +79,100 @@ const clearDemoData = async () => {
   const users = await User.deleteMany({ email: { $regex: `@${DEMO_DOMAIN}$`, $options: 'i' } });
 
   console.log(
-    `Cleared previous demo data — users: ${users.deletedCount}, jobs: ${jobs.deletedCount}, time logs: ${entries.deletedCount}`
+    `Cleared previous demo data — site managers: ${users.deletedCount}, jobs: ${jobs.deletedCount}, time logs: ${entries.deletedCount}`
   );
 };
 
-const createDemoUsers = async () => {
-  const docs = DEMO_OPERATORS.map((operator) => ({
-    name: operator.name,
-    email: emailFor(operator.name),
-    password: DEMO_PASSWORD,
-    role: 'operator',
-    employeeType: operator.employeeType,
-    employeeCategory: 'Local',
-    active: true,
-    passwordSet: true
-  }));
-  const created = await User.create(docs);
-  console.log(`Created ${created.length} demo operators`);
-  return created;
+const loadReferenceData = async () => {
+  const [locations, rigs, bonusConfig, employees] = await Promise.all([
+    Location.find({ active: true }),
+    RigNumber.find({ active: true }),
+    BonusConfig.getSingleton(),
+    Employee.find({ active: true })
+  ]);
+
+  if (!locations.length || !rigs.length) {
+    throw new Error('Baseline master data is missing. Run "npm run seed" before "npm run seed:demo".');
+  }
+
+  if (employees.length < 4) {
+    throw new Error('Employee roster is missing. Run "npm run seed" before "npm run seed:demo".');
+  }
+
+  const activityNames = [
+    'Coring (Drilling)',
+    'Pulling & Pumping down the inner tube',
+    'Hole conditioning',
+    'Reaming and back reaming of casing and rods',
+    'Pull and run rods to grease rods',
+    'Set up rig at commencement of a drill hole',
+    'Safety meetings'
+  ];
+  const activities = await Activity.find({ name: { $in: activityNames } });
+  if (activities.length < 3) {
+    throw new Error('Seeded activities are missing. Run "npm run seed" before "npm run seed:demo".');
+  }
+
+  const bit =
+    (await Consumable.findOne({ group: 'Bits', active: true }))?.name || 'NQ HAYDEN 8AA';
+  const grease =
+    (await Consumable.findOne({ name: /grease/i, active: true }))?.name || 'DUCO ROD GREASE';
+
+  return {
+    locations,
+    rigs,
+    bonusConfig,
+    employees,
+    activityIds: activities.map((activity) => activity._id),
+    consumables: { bit, grease }
+  };
 };
 
-const createDemoAssistants = async () => {
-  const docs = DEMO_ASSISTANTS.map((name) => ({
-    name,
-    email: emailFor(name),
+const createDemoSiteManagers = async () => {
+  const docs = DEMO_SITE_MANAGERS.map((manager) => ({
+    name: manager.name,
+    email: emailFor(manager.name),
     password: DEMO_PASSWORD,
     role: 'operator',
-    employeeType: 'Assistant',
+    employeeType: manager.employeeType,
     employeeCategory: 'Local',
     active: true,
     passwordSet: true
   }));
   const created = await User.create(docs);
-  console.log(`Created ${created.length} demo assistants`);
+  console.log(`Created ${created.length} demo site managers`);
   return created;
 };
 
 const buildJobPlan = () => [
-  { suffix: '001', when: CURRENT, offsetDay: 3, status: 'scheduled' },
-  { suffix: '002', when: CURRENT, offsetDay: 6, status: 'scheduled' },
-  { suffix: '003', when: PREVIOUS, offsetDay: 9, status: 'archived' },
-  { suffix: '004', when: CURRENT, offsetDay: 2, status: 'scheduled' },
-  { suffix: '005', when: CURRENT, offsetDay: 8, status: 'scheduled' },
-  { suffix: '006', when: CURRENT, offsetDay: 11, status: 'scheduled' },
-  { suffix: '007', when: CURRENT, offsetDay: 14, status: 'scheduled' },
-  { suffix: '008', when: PREVIOUS, offsetDay: 4, status: 'archived' },
-  { suffix: '009', when: PREVIOUS, offsetDay: 16, status: 'scheduled' },
-  { suffix: '010', when: CURRENT, offsetDay: 5, status: 'scheduled' },
-  { suffix: '011', when: PREVIOUS, offsetDay: 20, status: 'archived' },
-  { suffix: '012', when: PREVIOUS, offsetDay: 12, status: 'scheduled' }
+  { suffix: '001', when: CURRENT, offsetDay: 3, status: 'scheduled', bothShifts: true },
+  { suffix: '002', when: CURRENT, offsetDay: 6, status: 'scheduled', bothShifts: false },
+  { suffix: '003', when: PREVIOUS, offsetDay: 9, status: 'archived', bothShifts: false },
+  { suffix: '004', when: CURRENT, offsetDay: 2, status: 'scheduled', bothShifts: true },
+  { suffix: '005', when: CURRENT, offsetDay: 8, status: 'scheduled', bothShifts: false },
+  { suffix: '006', when: CURRENT, offsetDay: 11, status: 'scheduled', bothShifts: false },
+  { suffix: '007', when: CURRENT, offsetDay: 14, status: 'scheduled', bothShifts: true },
+  { suffix: '008', when: PREVIOUS, offsetDay: 4, status: 'archived', bothShifts: false },
+  { suffix: '009', when: PREVIOUS, offsetDay: 16, status: 'scheduled', bothShifts: false },
+  { suffix: '010', when: CURRENT, offsetDay: 5, status: 'scheduled', bothShifts: true },
+  { suffix: '011', when: PREVIOUS, offsetDay: 20, status: 'archived', bothShifts: false },
+  { suffix: '012', when: PREVIOUS, offsetDay: 12, status: 'scheduled', bothShifts: false }
 ];
 
-const createDemoJobs = async (users, locations, rigs) => {
+const createDemoJobs = async (siteManagers, employees, locations, rigs) => {
   const plan = buildJobPlan();
   const jobDocs = plan.map((entry, index) => {
-    const assignedIndexes = [0, 1, 3, 5, 7].map((step) => (index + step) % plan.length);
-    const assignedUserIds = users
-      .filter((_, userIndex) => assignedIndexes.includes(userIndex))
-      .map((user) => user._id);
+    const dayManager = siteManagers[index % siteManagers.length];
+    const nightManager = siteManagers[(index + 1) % siteManagers.length];
+
+    const managers = [{ userId: dayManager._id, shift: 'Day' }];
+    if (entry.bothShifts) {
+      managers.push({ userId: nightManager._id, shift: 'Night' });
+    }
+
+    const rosterEmployeeIds = [0, 3, 6, 9].map(
+      (step) => employees[(index + step) % employees.length]._id
+    );
 
     return {
       jobNumber: `${DEMO_JOB_PREFIX}${entry.suffix}`,
@@ -209,12 +182,18 @@ const createDemoJobs = async (users, locations, rigs) => {
       scheduledDate: dayDate(entry.when, entry.offsetDay),
       status: entry.status,
       previousStatus: entry.status === 'archived' ? 'scheduled' : null,
-      assignedUserIds
+      siteManagers: managers,
+      rosterEmployeeIds,
+      assignedUserIds: [...new Set(managers.map((manager) => String(manager.userId)))].map(
+        (id) => new mongoose.Types.ObjectId(id)
+      )
     };
   });
 
   const created = await Job.create(jobDocs);
-  console.log(`Created ${created.length} demo jobs (${created.filter((j) => j.status === 'archived').length} archived)`);
+  console.log(
+    `Created ${created.length} demo jobs (${created.filter((job) => job.status === 'archived').length} archived)`
+  );
   return created;
 };
 
@@ -254,22 +233,23 @@ const buildActivityLines = (totalMeters, recoveryRatio, activityIds, seed) => {
   return lines;
 };
 
-const buildEntry = ({ job, userId, when, day, status, meters, recoveryRatio, seed, activityIds, consumables }) => {
+const buildEntry = ({ job, userId, shift, when, day, status, meters, recoveryRatio, seed, activityIds, consumables }) => {
   const lines = buildActivityLines(meters, recoveryRatio, activityIds, seed);
   const lineHours = lines.length * 4.5;
+  const isDay = shift === 'Day';
 
   return {
     jobId: job._id,
     userId,
     date: dayDate(when, day),
-    shift: seed % 2 === 0 ? 'Day' : 'Night',
-    timeIn: seed % 2 === 0 ? '06:30' : '18:30',
-    timeOut: seed % 2 === 0 ? '18:30' : '06:30',
+    shift,
+    timeIn: isDay ? '06:30' : '18:30',
+    timeOut: isDay ? '18:30' : '06:30',
     assistantName: '',
     assistantTimeIn: '',
     assistantTimeOut: '',
-    timeStarted: '07:00',
-    timeFinished: '18:00',
+    timeStarted: isDay ? '07:00' : '19:00',
+    timeFinished: isDay ? '18:00' : '06:00',
     hoursOnSite: round1(lineHours + between(0.5, 1.6)),
     standbyHours: seed % 4 === 0 ? round1(between(0.5, 2)) : null,
     otherHours: seed % 6 === 0 ? round1(between(0.5, 1)) : null,
@@ -297,44 +277,45 @@ const buildEntry = ({ job, userId, when, day, status, meters, recoveryRatio, see
   };
 };
 
-const createDemoEntries = async (users, jobs, activityIds, consumables) => {
-  const jobByNumber = new Map(jobs.map((job) => [job.jobNumber, job]));
+const createDemoEntries = async (siteManagers, jobs, activityIds, consumables) => {
+  const RESERVED = new Set(['DEMO-005', 'DEMO-007']);
+
   const isCurrentScheduled = (job) =>
     job.status !== 'archived' &&
     job.scheduledDate >= dayDate(CURRENT, 1) &&
     job.scheduledDate <= dayDate(CURRENT, 28);
 
-  const RESERVED = new Set(['DEMO-005', 'DEMO-007']);
+  const shiftForManager = (job, managerId) =>
+    job.siteManagers.find((manager) => manager.userId.equals(managerId))?.shift || 'Day';
 
-  const routableJobsFor = (user) =>
+  const jobsForManager = (managerId, { currentOnly }) =>
     jobs.filter(
       (job) =>
-        job.assignedUserIds.some((id) => id.equals(user._id)) &&
-        isCurrentScheduled(job) &&
-        !RESERVED.has(job.jobNumber)
-    );
-
-  const anyAssignedFor = (user) =>
-    jobs.filter(
-      (job) =>
-        job.assignedUserIds.some((id) => id.equals(user._id)) &&
-        job.status !== 'archived' &&
-        !RESERVED.has(job.jobNumber)
+        job.siteManagers.some((manager) => manager.userId.equals(managerId)) &&
+        !RESERVED.has(job.jobNumber) &&
+        (currentOnly ? isCurrentScheduled(job) : job.status !== 'archived')
     );
 
   const docs = [];
 
-  users.forEach((user) => {
-    const plan = BONUS_PLAN[user.name] || DEFAULT_PLAN;
-    const currentJobs = routableJobsFor(user);
-    const previousJobs = anyAssignedFor(user);
+  siteManagers.forEach((manager) => {
+    const plan = BONUS_PLAN[manager.name] || DEFAULT_PLAN;
+    const currentJobs = jobsForManager(manager._id, { currentOnly: true });
+    const anyJobs = jobsForManager(manager._id, { currentOnly: false });
+
+    if (!currentJobs.length || !anyJobs.length) {
+      return;
+    }
+
     let index = 0;
 
     for (let i = 0; i < plan.eligibleCount; i += 1) {
+      const job = currentJobs[index % currentJobs.length];
       docs.push(
         buildEntry({
-          job: currentJobs[index % currentJobs.length],
-          userId: user._id,
+          job,
+          userId: manager._id,
+          shift: shiftForManager(job, manager._id),
           when: CURRENT,
           day: spreadDay(index),
           status: 'submitted',
@@ -349,10 +330,12 @@ const createDemoEntries = async (users, jobs, activityIds, consumables) => {
     }
 
     for (let i = 0; i < plan.missCount; i += 1) {
+      const job = currentJobs[index % currentJobs.length];
       docs.push(
         buildEntry({
-          job: currentJobs[index % currentJobs.length],
-          userId: user._id,
+          job,
+          userId: manager._id,
+          shift: shiftForManager(job, manager._id),
           when: CURRENT,
           day: spreadDay(index),
           status: 'submitted',
@@ -367,10 +350,12 @@ const createDemoEntries = async (users, jobs, activityIds, consumables) => {
     }
 
     for (let i = 0; i < plan.draftCount; i += 1) {
+      const job = currentJobs[index % currentJobs.length];
       docs.push(
         buildEntry({
-          job: currentJobs[index % currentJobs.length],
-          userId: user._id,
+          job,
+          userId: manager._id,
+          shift: shiftForManager(job, manager._id),
           when: CURRENT,
           day: spreadDay(index),
           status: 'draft',
@@ -386,15 +371,17 @@ const createDemoEntries = async (users, jobs, activityIds, consumables) => {
 
     let prevIndex = 0;
     for (let i = 0; i < plan.prevCount; i += 1) {
+      const job = anyJobs[prevIndex % anyJobs.length];
       docs.push(
         buildEntry({
-          job: previousJobs[prevIndex % previousJobs.length],
-          userId: user._id,
+          job,
+          userId: manager._id,
+          shift: shiftForManager(job, manager._id),
           when: PREVIOUS,
           day: spreadDay(prevIndex),
-          status: i === plan.prevCount - 1 ? 'draft' : 'submitted',
-          meters: round1(between(70, 220)),
-          recoveryRatio: between(0.76, 0.95),
+          status: 'submitted',
+          meters: round1(between(90, 220)),
+          recoveryRatio: between(0.8, 0.95),
           seed: prevIndex + 1,
           activityIds,
           consumables
@@ -404,23 +391,26 @@ const createDemoEntries = async (users, jobs, activityIds, consumables) => {
     }
   });
 
-  const draftJob = jobByNumber.get('DEMO-005');
-  draftJob.assignedUserIds.slice(0, 3).forEach((operatorId, position) => {
-    docs.push(
-      buildEntry({
-        job: draftJob,
-        userId: operatorId,
-        when: CURRENT,
-        day: 4 + position * 5,
-        status: 'draft',
-        meters: round1(between(80, 160)),
-        recoveryRatio: between(0.82, 0.94),
-        seed: position,
-        activityIds,
-        consumables
-      })
-    );
-  });
+  const draftJob = jobs.find((job) => job.jobNumber === 'DEMO-005');
+  if (draftJob) {
+    draftJob.siteManagers.forEach((manager, position) => {
+      docs.push(
+        buildEntry({
+          job: draftJob,
+          userId: manager.userId,
+          shift: manager.shift,
+          when: CURRENT,
+          day: 4 + position * 5,
+          status: 'draft',
+          meters: round1(between(80, 160)),
+          recoveryRatio: between(0.82, 0.94),
+          seed: position,
+          activityIds,
+          consumables
+        })
+      );
+    });
+  }
 
   const created = await TimeLogEntry.insertMany(docs, { ordered: true });
   const submitted = created.filter((entry) => entry.status === 'submitted').length;
@@ -430,79 +420,47 @@ const createDemoEntries = async (users, jobs, activityIds, consumables) => {
   return created;
 };
 
-const loadReferenceData = async () => {
-  const [locations, rigs, bonusConfig] = await Promise.all([
-    Location.find({ active: true }),
-    RigNumber.find({ active: true }),
-    BonusConfig.getSingleton()
-  ]);
-
-  if (!locations.length || !rigs.length) {
-    throw new Error('Baseline master data is missing. Run "npm run seed" before "npm run seed:demo".');
-  }
-
-  const activityNames = [
-    'Coring (Drilling)',
-    'Pulling & Pumping down the inner tube',
-    'Hole conditioning',
-    'Reaming and back reaming of casing and rods',
-    'Pull and run rods to grease rods',
-    'Set up rig at commencement of a drill hole',
-    'Safety meetings'
-  ];
-  const activities = await Activity.find({ name: { $in: activityNames } });
-  if (activities.length < 3) {
-    throw new Error('Seeded activities are missing. Run "npm run seed" before "npm run seed:demo".');
-  }
-
-  const bit =
-    (await Consumable.findOne({ group: 'Bits', active: true }))?.name || 'NQ HAYDEN 8AA';
-  const grease =
-    (await Consumable.findOne({ name: /grease/i, active: true }))?.name || 'DUCO ROD GREASE';
-
-  return {
-    locations,
-    rigs,
-    bonusConfig,
-    activityIds: activities.map((activity) => activity._id),
-    consumables: { bit, grease }
-  };
-};
-
-const printSummary = (users) => {
+const printSummary = (siteManagers, employees) => {
   console.log('');
-  console.log('Demo operators (password for all: ' + DEMO_PASSWORD + '):');
-  users.forEach((user) => {
+  console.log('Demo site managers (password for all: ' + DEMO_PASSWORD + '):');
+  siteManagers.forEach((user) => {
     console.log(`  ${user.name.padEnd(16)} ${user.email.padEnd(40)} ${user.employeeType}`);
   });
   console.log('');
+  console.log(`Employee roster: ${employees.length} non-login employees`);
   console.log(
     `Data window: previous month ${PREVIOUS.year}-${pad(PREVIOUS.month + 1)}, current month ${CURRENT.year}-${pad(CURRENT.month + 1)}`
   );
 };
 
-const seedDemo = async () => {
-  try {
-    await connectDatabase();
+export const seedDemo = async () => {
+  await connectDatabase();
 
-    await removePersonalTestAccount();
-    await removeStrandedTestJobs();
-    await clearDemoData();
+  await clearDemoData();
 
-    const reference = await loadReferenceData();
-    const users = await createDemoUsers();
-    const assistants = await createDemoAssistants();
-    const jobs = await createDemoJobs(users, reference.locations, reference.rigs);
-    await createDemoEntries(users, jobs, reference.activityIds, reference.consumables);
+  const reference = await loadReferenceData();
+  const siteManagers = await createDemoSiteManagers();
+  const jobs = await createDemoJobs(
+    siteManagers,
+    reference.employees,
+    reference.locations,
+    reference.rigs
+  );
+  await createDemoEntries(siteManagers, jobs, reference.activityIds, reference.consumables);
 
-    printSummary([...users, ...assistants]);
+  printSummary(siteManagers, reference.employees);
 
-    await mongoose.connection.close();
-    process.exit(0);
-  } catch (error) {
-    console.error(`Demo seed failed: ${error.message}`);
-    process.exit(1);
-  }
+  await mongoose.connection.close();
 };
 
-seedDemo();
+const invokedDirectly =
+  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (invokedDirectly) {
+  seedDemo()
+    .then(() => process.exit(0))
+    .catch((error) => {
+      console.error(`Demo seed failed: ${error.message}`);
+      process.exit(1);
+    });
+}

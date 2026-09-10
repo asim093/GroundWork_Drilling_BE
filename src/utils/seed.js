@@ -1,8 +1,10 @@
 import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import mongoose from 'mongoose';
 import { connectDatabase } from '../config/db.js';
 import { env } from '../config/env.js';
 import User from '../models/User.js';
+import Employee from '../models/Employee.js';
 import Location from '../models/Location.js';
 import RigNumber from '../models/RigNumber.js';
 import Consumable from '../models/Consumable.js';
@@ -16,7 +18,7 @@ import {
   SEED_CONSUMABLES,
   SEED_ACTIVITY_CATEGORIES,
   SEED_ACTIVITIES,
-  SEED_ASSISTANTS,
+  SEED_EMPLOYEES,
   SEED_BONUS_CONFIG
 } from '../config/masterData.js';
 
@@ -117,29 +119,18 @@ const seedActivities = async () => {
   console.log(`Activities: ${created} created, ${await Activity.countDocuments()} total`);
 };
 
-const seedAssistants = async () => {
+const seedEmployees = async () => {
   let created = 0;
 
-  for (const name of SEED_ASSISTANTS) {
-    const email = `${name.toLowerCase().split(' ').join('.')}@groundworkdrilling.com`;
-    const existing = await User.findOne({ email });
-
+  for (const { name, employeeType } of SEED_EMPLOYEES) {
+    const existing = await Employee.findOne(exactNameQuery(name));
     if (!existing) {
-      await User.create({
-        name,
-        email,
-        role: 'operator',
-        employeeType: 'Assistant',
-        employeeCategory: 'Local',
-        active: true,
-        passwordSet: true
-      });
+      await Employee.create({ name, employeeType, employeeCategory: 'Local' });
       created += 1;
     }
   }
 
-  const total = await User.countDocuments({ role: 'operator', employeeType: 'Assistant' });
-  console.log(`Assistants: ${created} created, ${total} total`);
+  console.log(`Employees: ${created} created, ${await Employee.countDocuments()} total`);
 };
 
 const seedBonusConfig = async () => {
@@ -152,30 +143,34 @@ const seedBonusConfig = async () => {
   console.log('BonusConfig seeded (threshold 85, Supervisor/Driller/Helper tiers)');
 };
 
-const seed = async () => {
-  try {
-    await connectDatabase();
+export const seedBase = async () => {
+  await connectDatabase();
 
-    await upsertUser({
-      name: 'Groundwork Admin',
-      email: env.seedAdminEmail,
-      password: env.seedAdminPassword,
-      role: 'admin'
-    });
+  await upsertUser({
+    name: 'Groundwork Admin',
+    email: env.seedAdminEmail,
+    password: env.seedAdminPassword,
+    role: 'admin'
+  });
 
-    await seedNamedList(Location, SEED_LOCATIONS, 'Locations');
-    await seedNamedList(RigNumber, SEED_RIG_NUMBERS, 'Rig numbers');
-    await seedConsumables();
-    await seedActivities();
-    await seedAssistants();
-    await seedBonusConfig();
+  await seedNamedList(Location, SEED_LOCATIONS, 'Locations');
+  await seedNamedList(RigNumber, SEED_RIG_NUMBERS, 'Rig numbers');
+  await seedConsumables();
+  await seedActivities();
+  await seedEmployees();
+  await seedBonusConfig();
 
-    await mongoose.connection.close();
-    process.exit(0);
-  } catch (error) {
-    console.error(`Seed failed: ${error.message}`);
-    process.exit(1);
-  }
+  await mongoose.connection.close();
 };
 
-seed();
+const invokedDirectly =
+  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (invokedDirectly) {
+  seedBase()
+    .then(() => process.exit(0))
+    .catch((error) => {
+      console.error(`Seed failed: ${error.message}`);
+      process.exit(1);
+    });
+}

@@ -9,15 +9,21 @@ export const EMPLOYEE_TYPES = [
   '5th Man'
 ];
 
-export const SEED_ASSISTANTS = [
-  'Alex Rivera',
-  'Priya Nair',
-  'Marcus Bell',
-  'Lena Fischer',
-  'Diego Santos'
-];
-
 export const EMPLOYEE_CATEGORIES = ['Local', 'Expat'];
+
+export const SEED_EMPLOYEES = [
+  { name: 'Alex Rivera', employeeType: 'Assistant' },
+  { name: 'Priya Nair', employeeType: 'Assistant' },
+  { name: 'Marcus Bell', employeeType: 'Assistant' },
+  { name: 'Lena Fischer', employeeType: 'Assistant' },
+  { name: 'Diego Santos', employeeType: 'Assistant' },
+  { name: 'Owen Pierce', employeeType: 'Driller' },
+  { name: 'Sofia Marsh', employeeType: 'Driller' },
+  { name: 'Caleb Ward', employeeType: 'Helper' },
+  { name: 'Hannah Boyd', employeeType: 'Helper' },
+  { name: 'Isaac Flynn', employeeType: 'Driller Trainee' },
+  { name: 'Ruby Cortez', employeeType: '5th Man' }
+];
 
 export const SHIFTS = ['Day', 'Night'];
 
