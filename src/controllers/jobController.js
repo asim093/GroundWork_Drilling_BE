@@ -191,10 +191,21 @@ export const listJobs = async (req, res) => {
     }
   }
 
-  const [data, total] = await Promise.all([
+  const [jobs, total] = await Promise.all([
     Job.find(filter).sort(sort).skip(skip).limit(limit).populate(JOB_POPULATE),
     Job.countDocuments(filter)
   ]);
+
+  const loggedJobIds = await TimeLogEntry.find({
+    jobId: { $in: jobs.map((job) => job._id) },
+    status: 'submitted'
+  }).distinct('jobId');
+  const loggedSet = new Set(loggedJobIds.map(String));
+
+  const data = jobs.map((job) => ({
+    ...job.toJSON(),
+    hasSubmittedLog: loggedSet.has(String(job._id))
+  }));
 
   res.json({ data, pagination: buildPaginationMeta(page, limit, total) });
 };
