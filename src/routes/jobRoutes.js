@@ -7,7 +7,6 @@ import {
   getJob,
   createJob,
   updateJob,
-  setJobAssignments,
   archiveJob,
   unarchiveJob
 } from '../controllers/jobController.js';
@@ -118,15 +117,6 @@ router.patch(
   body('rosterEmployeeIds.*').isMongoId().withMessage('Each employee id must be valid'),
   validate,
   asyncHandler(updateJob)
-);
-
-router.put(
-  '/:id/assignments',
-  param('id').isMongoId().withMessage('Invalid job id'),
-  body('userIds').isArray().withMessage('userIds must be an array'),
-  body('userIds.*').isMongoId().withMessage('Each user id must be valid'),
-  validate,
-  asyncHandler(setJobAssignments)
 );
 
 router.post(

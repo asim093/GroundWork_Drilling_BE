@@ -343,28 +343,6 @@ export const updateJob = async (req, res) => {
   res.json({ data: job });
 };
 
-export const setJobAssignments = async (req, res) => {
-  const job = await Job.findById(req.params.id);
-
-  if (!job) {
-    res.status(404).json({ message: 'Job not found' });
-    return;
-  }
-
-  const assignments = await resolveAssignments(req.body.userIds);
-
-  if (assignments === null) {
-    res.status(422).json({ message: 'One or more selected users do not exist' });
-    return;
-  }
-
-  job.assignedUserIds = assignments;
-  await job.save();
-  await job.populate(JOB_POPULATE);
-
-  res.json({ data: job });
-};
-
 export const archiveJob = async (req, res) => {
   const job = await Job.findById(req.params.id);
 
