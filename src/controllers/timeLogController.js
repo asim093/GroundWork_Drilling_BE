@@ -330,7 +330,7 @@ const loadMyReport = async (req) => {
   ]);
 
   const config = bonusConfig.toJSON();
-  const report = buildReportData(entries, config, {});
+  const report = buildReportData(entries, config, { groupBy: 'employee' });
   report.employeeType = req.user.employeeType || null;
   report.bonus = computeUserBonus(entries, req.user.employeeType, config);
 
