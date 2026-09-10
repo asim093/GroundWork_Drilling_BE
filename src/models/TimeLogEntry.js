@@ -65,6 +65,8 @@ const timeLogEntrySchema = new mongoose.Schema(
     date: { type: Date, required: true },
     shift: { type: String, enum: SHIFTS, required: true },
     crew: { type: [crewMemberSchema], default: [] },
+    timeIn: { type: String, trim: true, default: '' },
+    timeOut: { type: String, trim: true, default: '' },
     timeStarted: { type: String, trim: true, default: '' },
     timeFinished: { type: String, trim: true, default: '' },
     hoursOnSite: { type: Number, default: null },

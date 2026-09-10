@@ -44,6 +44,8 @@ const EDITABLE_FIELDS = [
   'date',
   'shift',
   'crew',
+  'timeIn',
+  'timeOut',
   'timeStarted',
   'timeFinished',
   'hoursOnSite',

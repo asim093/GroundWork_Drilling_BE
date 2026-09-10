@@ -252,6 +252,8 @@ export const buildEntryBreakdown = (entries, threshold = DEFAULT_RECOVERY_THRESH
       clientName: entry.jobId?.clientName || null,
       operator: entry.userId?.name || null,
       userId: entry.userId?._id ? String(entry.userId._id) : null,
+      timeIn: entry.timeIn || null,
+      timeOut: entry.timeOut || null,
       metersDrilled: entryMetersDrilled(entry),
       metersRecovered: entryMetersRecovered(entry),
       recoveryPercent,
