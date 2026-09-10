@@ -89,27 +89,29 @@ export const buildReportWorkbookBuffer = async (report, meta) => {
   styleHeaderRow(consumables.getRow(1));
   consumables.views = [{ state: 'frozen', ySplit: 1 }];
 
-  if (Array.isArray(report.groups) && report.groups.length) {
-    const isUser = report.groupBy === 'user';
-    const sheet = workbook.addWorksheet(isUser ? 'By user' : 'By job');
+  const addGroupSheet = (name, labelHeader, groups, withBonus) => {
+    if (!Array.isArray(groups) || !groups.length) {
+      return;
+    }
+    const sheet = workbook.addWorksheet(name);
     sheet.columns = [
-      { header: isUser ? 'Site manager' : 'Job', key: 'label', width: 30 },
-      ...(isUser ? [{ header: 'Employee type', key: 'employeeType', width: 18 }] : []),
-      { header: 'Entries', key: 'entries', width: 10 },
+      { header: labelHeader, key: 'label', width: 30 },
+      ...(withBonus ? [{ header: 'Type', key: 'employeeType', width: 18 }] : []),
+      { header: 'Shifts', key: 'entries', width: 10 },
       { header: 'Hours', key: 'hours', width: 10 },
       { header: 'Drilled (m)', key: 'drilled', width: 12 },
       { header: 'Recovered (m)', key: 'recovered', width: 14 },
       { header: 'Eligible', key: 'eligible', width: 10 },
       { header: 'Not eligible', key: 'notEligible', width: 12 },
       { header: 'Not available', key: 'notAvailable', width: 13 },
-      ...(isUser
+      ...(withBonus
         ? [
             { header: 'Eligible meters', key: 'eligibleMeters', width: 15 },
             { header: 'Bonus', key: 'bonus', width: 34 }
           ]
         : [])
     ];
-    report.groups.forEach((group) => {
+    groups.forEach((group) => {
       sheet.addRow({
         label: group.label,
         employeeType: group.employeeType || '—',
@@ -126,6 +128,13 @@ export const buildReportWorkbookBuffer = async (report, meta) => {
     });
     styleHeaderRow(sheet.getRow(1));
     sheet.views = [{ state: 'frozen', ySplit: 1 }];
+  };
+
+  if (report.groupBy === 'job') {
+    addGroupSheet('By job', 'Job', report.groups, false);
+  } else if (report.groupBy === 'employee') {
+    addGroupSheet('By employee', 'Employee', report.groups, true);
+    addGroupSheet('Managers', 'Manager', report.managerGroups, true);
   }
 
   const entries = workbook.addWorksheet('Entries');
@@ -596,35 +605,44 @@ export const buildReportPdfBuffer = (report, meta) =>
       emptyNote(doc, 'No consumables recorded in this period.');
     }
 
-    if (Array.isArray(report.groups) && report.groups.length) {
-      const isUser = report.groupBy === 'user';
-      sectionTitle(doc, isUser ? 'Breakdown by user' : 'Breakdown by job', 110);
+    const drawGroupTable = (title, labelHeader, groups, withBonus) => {
+      if (!Array.isArray(groups) || !groups.length) {
+        return;
+      }
+      sectionTitle(doc, title, 110);
       const columns = [
-        { header: isUser ? 'Site manager' : 'Job', weight: 2.6 },
-        ...(isUser ? [{ header: 'Type', weight: 1.3 }] : []),
-        { header: 'Ent.', weight: 0.85, align: 'right' },
+        { header: labelHeader, weight: 2.6 },
+        ...(withBonus ? [{ header: 'Type', weight: 1.3 }] : []),
+        { header: 'Shifts', weight: 0.85, align: 'right' },
         { header: 'Hrs', weight: 0.85, align: 'right' },
         { header: 'Drilled', weight: 1.15, align: 'right' },
         { header: 'Recov.', weight: 1.15, align: 'right' },
         { header: 'Elig.', weight: 0.9, align: 'right' },
-        ...(isUser
+        ...(withBonus
           ? [
               { header: 'Elig. m', weight: 1.2, align: 'right' },
               { header: 'Bonus', weight: 2.6 }
             ]
           : [])
       ];
-      const bodyRows = report.groups.map((group) => [
+      const bodyRows = groups.map((group) => [
         group.label,
-        ...(isUser ? [group.employeeType || '—'] : []),
+        ...(withBonus ? [group.employeeType || '—'] : []),
         pdfNum(group.entryCount),
         pdfNum(group.totals.totalLoggedHours),
         pdfNum(group.totals.metersDrilled),
         pdfNum(group.totals.metersRecovered),
         pdfNum(group.bonusEligibility.eligible),
-        ...(isUser ? [pdfNum(group.bonus?.eligibleMeters ?? 0), bonusText(group.bonus)] : [])
+        ...(withBonus ? [pdfNum(group.bonus?.eligibleMeters ?? 0), bonusText(group.bonus)] : [])
       ]);
       drawTable(doc, columns, bodyRows);
+    };
+
+    if (report.groupBy === 'job') {
+      drawGroupTable('Breakdown by job', 'Job', report.groups, false);
+    } else if (report.groupBy === 'employee') {
+      drawGroupTable('Breakdown by employee', 'Employee', report.groups, true);
+      drawGroupTable('Managers', 'Manager', report.managerGroups, true);
     }
 
     sectionTitle(doc, 'Submitted entries', 110);

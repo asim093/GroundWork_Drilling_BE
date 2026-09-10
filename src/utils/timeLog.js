@@ -54,6 +54,22 @@ export const activityLineHours = (line) => {
   return round2(diff);
 };
 
+export const crewMemberHours = (member) => {
+  const from = parseClockHours(member?.timeIn);
+  const to = parseClockHours(member?.timeOut);
+
+  if (from === null || to === null) {
+    return 0;
+  }
+
+  let diff = to - from;
+  if (diff < 0) {
+    diff += 24;
+  }
+
+  return round2(diff);
+};
+
 export const isWithinShift = (lineTime, timeIn, timeOut) => {
   const point = parseClockHours(lineTime);
   const start = parseClockHours(timeIn);

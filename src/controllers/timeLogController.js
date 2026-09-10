@@ -283,9 +283,10 @@ const fetchSubmittedEntries = (from, to, extra = {}) =>
   TimeLogEntry.find({ status: 'submitted', date: { $gte: from, $lte: to }, ...extra })
     .populate('jobId', 'jobNumber clientName')
     .populate('userId', 'name email employeeType employeeCategory')
+    .populate('crew.employeeId', 'name employeeType')
     .lean();
 
-const resolveGroupBy = (value) => (value === 'user' || value === 'job' ? value : null);
+const resolveGroupBy = (value) => (value === 'employee' || value === 'job' ? value : null);
 
 const loadAdminReport = async (query) => {
   const { from, to } = resolveDateRange(query);

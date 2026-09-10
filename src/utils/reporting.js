@@ -1,4 +1,5 @@
 import {
+  crewMemberHours,
   entryMetersDrilled,
   entryMetersRecovered,
   entryRecoveryPercent,
@@ -264,13 +265,61 @@ export const buildEntryBreakdown = (entries, threshold = DEFAULT_RECOVERY_THRESH
     };
   });
 
+export const buildEmployeeGroups = (entries, threshold, bonusConfig) => {
+  const groups = new Map();
+
+  entries.forEach((entry) => {
+    (entry.crew || []).forEach((member) => {
+      const employee = member.employeeId;
+      const key = String(employee?._id || employee?.id || employee || 'unknown');
+
+      if (!groups.has(key)) {
+        groups.set(key, {
+          key,
+          label: employee?.name || 'Unknown employee',
+          employeeType: employee?.employeeType || null,
+          rows: []
+        });
+      }
+      groups.get(key).rows.push({ entry, member });
+    });
+  });
+
+  return [...groups.values()]
+    .map((group) => {
+      const groupEntries = group.rows.map((row) => row.entry);
+      const base = buildTotals(groupEntries, threshold);
+      const crewHours = round2(
+        group.rows.reduce((sum, row) => sum + crewMemberHours(row.member), 0)
+      );
+      const recoveryPercent =
+        base.totals.metersDrilled > 0
+          ? round2((base.totals.metersRecovered / base.totals.metersDrilled) * 100)
+          : null;
+
+      return {
+        key: group.key,
+        label: group.label,
+        employeeType: group.employeeType,
+        entryCount: groupEntries.length,
+        totals: { ...base.totals, totalHours: crewHours, totalLoggedHours: crewHours },
+        consumables: base.consumables,
+        bonusEligibility: base.bonusEligibility,
+        recoveryPercent,
+        bonus: computeUserBonus(groupEntries, group.employeeType, bonusConfig)
+      };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label));
+};
+
 export const buildReportData = (entries, bonusConfig, { groupBy } = {}) => {
   const threshold = bonusConfig?.recoveryThreshold ?? DEFAULT_RECOVERY_THRESHOLD;
   const base = buildTotals(entries, threshold);
-  const userGroups = buildGroups(entries, 'user', threshold, bonusConfig);
+  const employeeGroups = buildEmployeeGroups(entries, threshold, bonusConfig);
+  const managerGroups = buildGroups(entries, 'user', threshold, bonusConfig);
 
   const bonusTotalAmount = round2(
-    userGroups.reduce(
+    [...employeeGroups, ...managerGroups].reduce(
       (sum, group) => sum + (typeof group.bonus?.amount === 'number' ? group.bonus.amount : 0),
       0
     )
@@ -282,8 +331,8 @@ export const buildReportData = (entries, bonusConfig, { groupBy } = {}) => {
       : null;
 
   let groups;
-  if (groupBy === 'user') {
-    groups = userGroups;
+  if (groupBy === 'employee') {
+    groups = employeeGroups;
   } else if (groupBy === 'job') {
     groups = buildGroups(entries, 'job', threshold, bonusConfig);
   }
@@ -298,7 +347,8 @@ export const buildReportData = (entries, bonusConfig, { groupBy } = {}) => {
     bonusTotalAmount,
     entries: buildEntryBreakdown(entries, threshold),
     groupBy: groupBy || null,
-    groups
+    groups,
+    managerGroups: groupBy === 'employee' ? managerGroups : undefined
   };
 };
 
