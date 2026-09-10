@@ -329,6 +329,15 @@ export const updateJob = async (req, res) => {
     return;
   }
 
+  const nextStatus = req.body.status;
+  if (nextStatus !== undefined && nextStatus !== job.status) {
+    if (nextStatus === 'archived') {
+      job.previousStatus = job.status;
+    } else if (job.status === 'archived') {
+      job.previousStatus = null;
+    }
+  }
+
   Object.assign(job, pickEditableFields(req.body));
 
   const relationError = await applyJobRelations(job, req.body);
