@@ -1,6 +1,7 @@
 import Job from '../models/Job.js';
 import User from '../models/User.js';
 import Employee from '../models/Employee.js';
+import RigNumber from '../models/RigNumber.js';
 import TimeLogEntry from '../models/TimeLogEntry.js';
 import { buildListOptions, buildPaginationMeta } from '../utils/listQuery.js';
 import { startOfUtcDay } from '../utils/timeLog.js';
@@ -211,25 +212,45 @@ export const listAssignedJobs = async (req, res) => {
     filter.status = req.query.status;
   }
 
+  if (req.query.rig) {
+    filter.rigNumber = req.query.rig;
+  }
+
+  if (req.query.from || req.query.to) {
+    filter.scheduledDate = {};
+    if (req.query.from) {
+      filter.scheduledDate.$gte = new Date(req.query.from);
+    }
+    if (req.query.to) {
+      const to = new Date(req.query.to);
+      to.setUTCHours(23, 59, 59, 999);
+      filter.scheduledDate.$lte = to;
+    }
+  }
+
   const searchFilter = buildSearchFilter(req.query.search);
   if (searchFilter) {
     Object.assign(filter, searchFilter);
+  }
+
+  const today = startOfUtcDay(new Date());
+  const todayEntries = await TimeLogEntry.find({ userId: req.user.id, date: today })
+    .select('jobId status')
+    .lean();
+  const todayByJob = new Map(todayEntries.map((entry) => [String(entry.jobId), entry]));
+
+  if (req.query.today === 'logged') {
+    filter._id = { $in: todayEntries.filter((e) => e.status === 'submitted').map((e) => e.jobId) };
+  } else if (req.query.today === 'draft') {
+    filter._id = { $in: todayEntries.filter((e) => e.status === 'draft').map((e) => e.jobId) };
+  } else if (req.query.today === 'none') {
+    filter._id = { $nin: todayEntries.map((e) => e.jobId) };
   }
 
   const [jobs, total] = await Promise.all([
     Job.find(filter).sort(sort).skip(skip).limit(limit).populate(RIG_NUMBER_POPULATE),
     Job.countDocuments(filter)
   ]);
-
-  const today = startOfUtcDay(new Date());
-  const todayEntries = await TimeLogEntry.find({
-    userId: req.user.id,
-    jobId: { $in: jobs.map((job) => job._id) },
-    date: today
-  })
-    .select('jobId status')
-    .lean();
-  const todayByJob = new Map(todayEntries.map((entry) => [String(entry.jobId), entry]));
 
   const data = jobs.map((job) => {
     const entry = todayByJob.get(job.id);
@@ -239,7 +260,21 @@ export const listAssignedJobs = async (req, res) => {
     };
   });
 
-  res.json({ data, pagination: buildPaginationMeta(page, limit, total) });
+  const assignedRigIds = await Job.find({
+    assignedUserIds: req.user.id,
+    status: { $ne: 'archived' },
+    rigNumber: { $ne: null }
+  }).distinct('rigNumber');
+  const rigOptions = await RigNumber.find({ _id: { $in: assignedRigIds } })
+    .select('name')
+    .sort('name')
+    .lean();
+
+  res.json({
+    data,
+    pagination: buildPaginationMeta(page, limit, total),
+    filters: { rigs: rigOptions.map((rig) => ({ value: String(rig._id), label: rig.name })) }
+  });
 };
 
 export const getAssignedJob = async (req, res) => {

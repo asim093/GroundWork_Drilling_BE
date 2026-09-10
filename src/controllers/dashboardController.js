@@ -141,7 +141,7 @@ const operatorDashboard = async (userId) => {
     activityEntries,
     bonusConfig
   ] = await Promise.all([
-    Job.find({ assignedUserIds: userId }).select('status').lean(),
+    Job.find({ assignedUserIds: userId, status: { $ne: 'archived' } }).select('status').lean(),
     TimeLogEntry.countDocuments({ userId, status: 'draft' }),
     TimeLogEntry.countDocuments({ userId, status: 'submitted' }),
     TimeLogEntry.countDocuments({

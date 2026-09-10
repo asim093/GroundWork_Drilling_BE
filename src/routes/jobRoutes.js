@@ -28,6 +28,13 @@ router.get(
   '/assigned',
   query('status').optional().isIn(STATUS_VALUES).withMessage('Invalid status filter'),
   query('search').optional().trim(),
+  query('rig').optional().isMongoId().withMessage('Invalid rig number'),
+  query('from').optional().isISO8601().withMessage('From must be a valid date'),
+  query('to').optional().isISO8601().withMessage('To must be a valid date'),
+  query('today')
+    .optional()
+    .isIn(['logged', 'draft', 'none'])
+    .withMessage('Invalid today filter'),
   query('sort').optional().isIn(SORT_FIELDS).withMessage('Invalid sort field'),
   query('order').optional().isIn(['asc', 'desc']).withMessage('Order must be asc or desc'),
   validate,
