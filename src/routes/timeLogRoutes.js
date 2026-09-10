@@ -167,6 +167,7 @@ router.get(
   authorize('admin'),
   ...dateRangeValidators,
   query('groupBy').optional().isIn(['user', 'job']).withMessage('groupBy must be user or job'),
+  query('job').optional().isMongoId().withMessage('Invalid job id'),
   query('user').optional().isMongoId().withMessage('Invalid user id'),
   validate,
   asyncHandler(reportsSummary)
@@ -177,6 +178,7 @@ router.get(
   authorize('admin'),
   ...dateRangeValidators,
   query('groupBy').optional().isIn(['user', 'job']).withMessage('groupBy must be user or job'),
+  query('job').optional().isMongoId().withMessage('Invalid job id'),
   query('user').optional().isMongoId().withMessage('Invalid user id'),
   exportFormatValidator,
   validate,
@@ -188,6 +190,7 @@ router.post(
   authorize('admin'),
   ...dateRangeValidators,
   query('groupBy').optional().isIn(['user', 'job']).withMessage('groupBy must be user or job'),
+  query('job').optional().isMongoId().withMessage('Invalid job id'),
   query('user').optional().isMongoId().withMessage('Invalid user id'),
   exportFormatValidator,
   ...chartBodyValidators,

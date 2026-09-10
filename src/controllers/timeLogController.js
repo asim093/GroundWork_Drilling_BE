@@ -292,6 +292,11 @@ const loadAdminReport = async (query) => {
     const target = await User.findById(query.user).select('name');
     scope = target ? `Operator: ${target.name}` : 'Operator';
   }
+  if (query.job) {
+    extra.jobId = query.job;
+    const job = await Job.findById(query.job).select('jobNumber');
+    scope = job ? `Job: ${job.jobNumber}` : 'Job';
+  }
 
   const [entries, bonusConfig] = await Promise.all([
     fetchSubmittedEntries(from, to, extra),
@@ -321,8 +326,8 @@ const loadMyReport = async (req) => {
 };
 
 export const reportsSummary = async (req, res) => {
-  const { from, to, report } = await loadAdminReport(req.query);
-  res.json({ data: { from, to, ...report } });
+  const { from, to, report, scope } = await loadAdminReport(req.query);
+  res.json({ data: { from, to, scope, ...report } });
 };
 
 export const reportsMine = async (req, res) => {
