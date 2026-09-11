@@ -44,16 +44,51 @@ const contentBottom = (doc) => doc.page.height - doc.page.margins.bottom;
 const drawHeaderBand = (doc, meta) => {
   const bandHeight = 66;
   const startX = doc.page.margins.left;
+  const scopeLabel = meta.scope && meta.scope !== 'All clients' ? `Client: ${meta.scope}     ` : '';
   doc.save().rect(0, 0, doc.page.width, bandHeight).fill(C.brand).restore();
   doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(16).text(meta.title, startX, 16, { lineBreak: false });
   doc
     .font('Helvetica')
     .fontSize(9)
     .fillColor(C.subtitle)
-    .text(`${dateLabel(meta.from)} – ${dateLabel(meta.to)}`, startX, 40, { lineBreak: false });
+    .text(`${scopeLabel}${dateLabel(meta.from)} – ${dateLabel(meta.to)}`, startX, 40, { lineBreak: false });
   doc.fillColor('#000000');
   doc.x = startX;
   doc.y = bandHeight + 22;
+};
+
+const drawKpiCards = (doc, cards) => {
+  const startX = doc.page.margins.left;
+  const usableWidth = contentWidth(doc);
+  const gap = 14;
+  const cardWidth = (usableWidth - gap * (cards.length - 1)) / cards.length;
+  const cardHeight = 64;
+  const top = doc.y;
+
+  cards.forEach((card, index) => {
+    const x = startX + index * (cardWidth + gap);
+    doc.save().roundedRect(x, top, cardWidth, cardHeight, 6).fillAndStroke('#f8f9fb', C.cardBorder).restore();
+    doc
+      .fillColor(C.muted)
+      .font('Helvetica-Bold')
+      .fontSize(7.5)
+      .text(card.label, x + 12, top + 10, { width: cardWidth - 24, lineBreak: false });
+    doc
+      .fillColor(C.heading)
+      .font('Helvetica-Bold')
+      .fontSize(17)
+      .text(card.value, x + 12, top + 24, { width: cardWidth - 24, lineBreak: false });
+    if (card.hint) {
+      doc
+        .fillColor(C.muted)
+        .font('Helvetica')
+        .fontSize(6.5)
+        .text(card.hint, x + 12, top + 46, { width: cardWidth - 24, lineBreak: false });
+    }
+  });
+
+  doc.fillColor('#000000');
+  doc.y = top + cardHeight + 12;
 };
 
 const drawFooters = (doc, generatedLabel) => {
@@ -301,7 +336,27 @@ export const buildHoursReportPdfBuffer = (report, meta) => {
   drawHeaderBand(doc, meta);
 
   if (report.scope === 'employee') {
-    sectionTitle(doc, 'Hours by employee');
+    const totalHours = (report.employees || []).reduce((sum, e) => sum + (e.totalHours || 0), 0);
+    drawKpiCards(doc, [
+      { label: 'Employees', value: pdfNum((report.employees || []).length) },
+      { label: 'Total paid hours', value: pdfNum(Math.round(totalHours * 100) / 100) }
+    ]);
+  } else if (report.scope === 'manager') {
+    const totalHours = (report.managers || []).reduce((sum, m) => sum + (m.totalHours || 0), 0);
+    drawKpiCards(doc, [
+      { label: 'Managers', value: pdfNum((report.managers || []).length) },
+      { label: 'Total paid hours', value: pdfNum(Math.round(totalHours * 100) / 100) }
+    ]);
+  } else {
+    drawKpiCards(doc, [
+      { label: 'Jobs', value: pdfNum((report.jobs || []).length) },
+      { label: 'Billable hours', value: pdfNum(report.totals?.billableHours), hint: 'Billed to the client' },
+      { label: 'Paid hours', value: pdfNum(report.totals?.paidHours), hint: 'Paid to employees' }
+    ]);
+  }
+
+  if (report.scope === 'employee') {
+    sectionTitle(doc, 'Hours by employee', 110);
     if ((report.employees || []).length) {
       drawTable(
         doc,
@@ -356,12 +411,6 @@ export const buildHoursReportPdfBuffer = (report, meta) => {
           pdfNum(job.paidHours)
         ])
       );
-      doc
-        .font('Helvetica-Bold')
-        .fontSize(9)
-        .text(
-          `Total — Billable: ${pdfNum(report.totals?.billableHours)}h   Paid: ${pdfNum(report.totals?.paidHours)}h`
-        );
     } else {
       emptyNote(doc, 'No submitted entries in this period.');
     }
@@ -418,6 +467,12 @@ export const buildConsumablesReportWorkbookBuffer = async (report, meta) => {
 export const buildConsumablesReportPdfBuffer = (report, meta) => {
   const { doc, promise } = startDoc();
   drawHeaderBand(doc, meta);
+
+  const totalQty = report.items.reduce((sum, item) => sum + (item.totalQtyUsed || 0), 0);
+  drawKpiCards(doc, [
+    { label: 'Distinct items', value: pdfNum(report.items.length) },
+    { label: 'Total qty used', value: pdfNum(Math.round(totalQty * 100) / 100) }
+  ]);
 
   sectionTitle(doc, 'Consumables used');
   if (report.items.length) {
@@ -500,6 +555,14 @@ export const buildFuelReportWorkbookBuffer = async (report, meta) => {
 export const buildFuelReportPdfBuffer = (report, meta) => {
   const { doc, promise } = startDoc();
   drawHeaderBand(doc, meta);
+
+  const totalLt = report.byType.reduce((sum, type) => sum + (type.totalLt || 0), 0);
+  drawKpiCards(
+    doc,
+    report.byType
+      .map((type) => ({ label: type.type, value: `${pdfNum(type.totalLt)} L` }))
+      .concat([{ label: 'Total', value: `${pdfNum(Math.round(totalLt * 100) / 100)} L` }])
+  );
 
   sectionTitle(doc, 'Fuel used');
   drawTable(

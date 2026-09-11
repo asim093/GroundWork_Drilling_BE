@@ -28,7 +28,8 @@ import {
   startOfUtcDay,
   isWithinShift,
   findActivityLineOverlap,
-  findActivityCoverageGap
+  findActivityCoverageGaps,
+  formatClock12h
 } from '../utils/timeLog.js';
 
 const SORTABLE_FIELDS = ['date', 'createdAt', 'updatedAt', 'status'];
@@ -336,7 +337,8 @@ export const reportsHours = async (req, res) => {
 
 export const reportsConsumables = async (req, res) => {
   const { from, to } = resolveDateRange(req.query);
-  const entries = await fetchSubmittedEntries(from, to, await buildEntryFilter(req.query));
+  const extra = await buildEntryFilter(req.query);
+  const entries = filterByClientName(await fetchSubmittedEntries(from, to, extra), req.query.client);
   const items = buildConsumablesLedger(entries);
   const monthly = buildConsumablesMonthlyBreakdown(entries);
 
@@ -345,7 +347,8 @@ export const reportsConsumables = async (req, res) => {
 
 export const reportsFuel = async (req, res) => {
   const { from, to } = resolveDateRange(req.query);
-  const entries = await fetchSubmittedEntries(from, to, await buildEntryFilter(req.query));
+  const extra = await buildEntryFilter(req.query);
+  const entries = filterByClientName(await fetchSubmittedEntries(from, to, extra), req.query.client);
   const byType = buildFuelLedger(entries);
   const monthly = buildFuelMonthlyBreakdown(entries);
 
@@ -406,7 +409,8 @@ export const reportsHoursExport = async (req, res) => {
 
 export const reportsConsumablesExport = async (req, res) => {
   const { from, to } = resolveDateRange(req.query);
-  const entries = await fetchSubmittedEntries(from, to, await buildEntryFilter(req.query));
+  const extra = await buildEntryFilter(req.query);
+  const entries = filterByClientName(await fetchSubmittedEntries(from, to, extra), req.query.client);
   const items = buildConsumablesLedger(entries);
   const monthly = buildConsumablesMonthlyBreakdown(entries);
 
@@ -417,13 +421,14 @@ export const reportsConsumablesExport = async (req, res) => {
       format === 'pdf'
         ? buildConsumablesReportPdfBuffer({ items, monthly: monthly.length > 1 ? monthly : [] }, meta)
         : buildConsumablesReportWorkbookBuffer({ items, monthly: monthly.length > 1 ? monthly : [] }, meta),
-    meta: { title: 'Groundwork Drilling — Consumables Report', from, to }
+    meta: { title: 'Groundwork Drilling — Consumables Report', scope: req.query.client || 'All clients', from, to }
   });
 };
 
 export const reportsFuelExport = async (req, res) => {
   const { from, to } = resolveDateRange(req.query);
-  const entries = await fetchSubmittedEntries(from, to, await buildEntryFilter(req.query));
+  const extra = await buildEntryFilter(req.query);
+  const entries = filterByClientName(await fetchSubmittedEntries(from, to, extra), req.query.client);
   const byType = buildFuelLedger(entries);
   const monthly = buildFuelMonthlyBreakdown(entries);
 
@@ -434,7 +439,7 @@ export const reportsFuelExport = async (req, res) => {
       format === 'pdf'
         ? buildFuelReportPdfBuffer({ byType, monthly: monthly.length > 1 ? monthly : [] }, meta)
         : buildFuelReportWorkbookBuffer({ byType, monthly: monthly.length > 1 ? monthly : [] }, meta),
-    meta: { title: 'Groundwork Drilling — Fuel Report', from, to }
+    meta: { title: 'Groundwork Drilling — Fuel Report', scope: req.query.client || 'All clients', from, to }
   });
 };
 
@@ -456,16 +461,6 @@ export const submitTimeLog = async (req, res) => {
     return;
   }
 
-  const missingActivity = entry.activityLines.findIndex(
-    (line) => !line.activityId && !line.description
-  );
-  if (missingActivity !== -1) {
-    res
-      .status(422)
-      .json({ message: `Select an activity for line ${missingActivity + 1} before submitting` });
-    return;
-  }
-
   if (!entry.crew.length) {
     res.status(422).json({ message: 'Add at least one crew member before submitting' });
     return;
@@ -481,6 +476,23 @@ export const submitTimeLog = async (req, res) => {
     return;
   }
 
+  const issues = [];
+
+  entry.activityLines.forEach((line, index) => {
+    if (!line.activityId && !line.description) {
+      issues.push(`Activity line ${index + 1}: select an activity.`);
+    }
+  });
+
+  entry.consumables.forEach((item, index) => {
+    const hasQty = [item.qtyTaken, item.qtyReturned, item.qtyUsed].some(
+      (value) => value !== null && value !== undefined
+    );
+    if (hasQty && !item.itemName) {
+      issues.push(`Consumable row ${index + 1}: select an item.`);
+    }
+  });
+
   const windowStart = entry.timeIn || entry.timeStarted;
   const windowEnd = entry.timeOut || entry.timeFinished;
   if (windowStart && windowEnd) {
@@ -490,33 +502,30 @@ export const submitTimeLog = async (req, res) => {
         !isWithinShift(line.timeTo, windowStart, windowEnd)
     );
     if (outOfWindow !== -1) {
-      res.status(422).json({
-        message: `Line ${outOfWindow + 1}: activity time is outside the on-site window (Time In to Time Out)`
-      });
-      return;
+      issues.push(
+        `Activity line ${outOfWindow + 1}: time is outside the on-site window (Time In to Time Out).`
+      );
+    } else {
+      const overlap = findActivityLineOverlap(entry.activityLines, windowStart, windowEnd);
+      if (overlap?.type === 'reversed') {
+        issues.push(`Activity line ${overlap.index + 1}: Time To must be after Time From.`);
+      } else if (overlap?.type === 'overlap') {
+        issues.push(
+          `Activity lines ${overlap.indexA + 1} and ${overlap.indexB + 1} overlap — they can't cover the same time twice.`
+        );
+      } else {
+        findActivityCoverageGaps(entry.activityLines, windowStart, windowEnd).forEach((gap) => {
+          issues.push(
+            `You're missing an activity between ${formatClock12h(gap.from)} and ${formatClock12h(gap.to)} — please add it before submitting.`
+          );
+        });
+      }
     }
+  }
 
-    const overlap = findActivityLineOverlap(entry.activityLines, windowStart, windowEnd);
-    if (overlap?.type === 'reversed') {
-      res.status(422).json({
-        message: `Line ${overlap.index + 1}: Time To must be after Time From`
-      });
-      return;
-    }
-    if (overlap?.type === 'overlap') {
-      res.status(422).json({
-        message: `Lines ${overlap.indexA + 1} and ${overlap.indexB + 1} overlap — activity lines cannot cover the same time twice`
-      });
-      return;
-    }
-
-    const gap = findActivityCoverageGap(entry.activityLines, windowStart, windowEnd);
-    if (gap) {
-      res.status(422).json({
-        message: `You're missing an activity between ${gap.from} and ${gap.to} — please add it before submitting.`
-      });
-      return;
-    }
+  if (issues.length) {
+    res.status(422).json({ message: issues.join(' '), issues });
+    return;
   }
 
   entry.status = 'submitted';

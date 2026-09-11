@@ -37,6 +37,22 @@ export const formatClockHours = (value) => {
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 };
 
+/** "18:00" -> "6:00 PM" */
+export const formatClock12h = (hhmm) => {
+  const match = /^(\d{1,2}):(\d{2})/.exec(hhmm || '');
+  if (!match) {
+    return hhmm || '';
+  }
+  const hours = Number(match[1]);
+  const minutes = match[2];
+  const period = hours >= 12 ? 'PM' : 'AM';
+  let hour12 = hours % 12;
+  if (hour12 === 0) {
+    hour12 = 12;
+  }
+  return `${hour12}:${minutes} ${period}`;
+};
+
 export const activityLineHours = (line) => {
   const from = parseClockHours(line?.timeFrom);
   const to = parseClockHours(line?.timeTo);
@@ -148,18 +164,19 @@ export const findActivityLineOverlap = (lines, timeIn, timeOut) => {
   return null;
 };
 
-export const findActivityCoverageGap = (lines, timeIn, timeOut) => {
+export const findActivityCoverageGaps = (lines, timeIn, timeOut) => {
   const normalized = normalizeLineRanges(lines || [], timeIn, timeOut);
   if (!normalized) {
-    return null;
+    return [];
   }
   const { start, end, ranges } = normalized;
   const sorted = [...ranges].sort((a, b) => a.from - b.from);
 
+  const gaps = [];
   let cursor = start;
   for (const range of sorted) {
     if (range.from > cursor) {
-      return { from: formatClockHours(cursor % 24), to: formatClockHours(range.from % 24) };
+      gaps.push({ from: formatClockHours(cursor % 24), to: formatClockHours(range.from % 24) });
     }
     if (range.to > cursor) {
       cursor = range.to;
@@ -167,8 +184,8 @@ export const findActivityCoverageGap = (lines, timeIn, timeOut) => {
   }
 
   if (cursor < end) {
-    return { from: formatClockHours(cursor % 24), to: formatClockHours(end % 24) };
+    gaps.push({ from: formatClockHours(cursor % 24), to: formatClockHours(end % 24) });
   }
 
-  return null;
+  return gaps;
 };
