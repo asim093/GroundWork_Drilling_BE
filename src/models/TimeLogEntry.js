@@ -1,15 +1,6 @@
 import mongoose from 'mongoose';
 import { SHIFTS } from '../config/masterData.js';
-import {
-  activityLineDrilledMeters,
-  activityLineHours,
-  entryMetersDrilled,
-  entryMetersRecovered,
-  entryMileageTotal,
-  entryRecoveryPercent,
-  entryTotalHours,
-  startOfUtcDay
-} from '../utils/timeLog.js';
+import { activityLineHours, entryTotalHours, startOfUtcDay } from '../utils/timeLog.js';
 
 const activityLineSchema = new mongoose.Schema(
   {
@@ -17,10 +8,6 @@ const activityLineSchema = new mongoose.Schema(
     description: { type: String, trim: true, default: '' },
     activityId: { type: mongoose.Schema.Types.ObjectId, ref: 'Activity', default: null },
     comments: { type: String, trim: true, default: '' },
-    depth: { type: Number, default: null },
-    depthFrom: { type: Number, default: null },
-    depthTo: { type: Number, default: null },
-    recoveryMeters: { type: Number, default: null },
     timeFrom: { type: String, trim: true, default: '' },
     timeTo: { type: String, trim: true, default: '' },
     chargeTime: { type: Number, default: null },
@@ -28,10 +15,6 @@ const activityLineSchema = new mongoose.Schema(
   },
   { _id: false }
 );
-
-activityLineSchema.virtual('drilledMeters').get(function drilledMeters() {
-  return activityLineDrilledMeters(this);
-});
 
 activityLineSchema.virtual('hours').get(function hours() {
   return activityLineHours(this);
@@ -70,15 +53,6 @@ const timeLogEntrySchema = new mongoose.Schema(
     timeStarted: { type: String, trim: true, default: '' },
     timeFinished: { type: String, trim: true, default: '' },
     hoursOnSite: { type: Number, default: null },
-    standbyHours: { type: Number, default: null },
-    otherHours: { type: Number, default: null },
-    mileageStart: { type: Number, default: null },
-    mileageEnd: { type: Number, default: null },
-    wellTag: {
-      installed: { type: Boolean, default: false },
-      decommissioned: { type: Boolean, default: false },
-      locatesProvidedBy: { type: String, trim: true, default: '' }
-    },
     activityLines: { type: [activityLineSchema], default: [] },
     fuel: {
       dyedLt: { type: Number, default: null },
@@ -101,24 +75,8 @@ timeLogEntrySchema.pre('validate', function normalizeDate(next) {
 timeLogEntrySchema.index({ userId: 1, date: -1 });
 timeLogEntrySchema.index({ jobId: 1, date: 1, shift: 1 }, { unique: true });
 
-timeLogEntrySchema.virtual('metersDrilled').get(function metersDrilled() {
-  return entryMetersDrilled(this);
-});
-
-timeLogEntrySchema.virtual('metersRecovered').get(function metersRecovered() {
-  return entryMetersRecovered(this);
-});
-
 timeLogEntrySchema.virtual('totalHours').get(function totalHours() {
   return entryTotalHours(this);
-});
-
-timeLogEntrySchema.virtual('recoveryPercent').get(function recoveryPercent() {
-  return entryRecoveryPercent(this);
-});
-
-timeLogEntrySchema.virtual('mileageTotal').get(function mileageTotal() {
-  return entryMileageTotal(this);
 });
 
 timeLogEntrySchema.set('toJSON', {

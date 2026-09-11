@@ -26,16 +26,15 @@ export const parseClockHours = (value) => {
   return hours + minutes / 60 + seconds / 3600;
 };
 
-export const activityLineDrilledMeters = (line) => {
-  const from = line?.depthFrom;
-  const to = line?.depthTo;
-
-  if (from === null || from === undefined || from === '' || to === null || to === undefined || to === '') {
-    return null;
+export const formatClockHours = (value) => {
+  let hours = Math.floor(value);
+  let minutes = Math.round((value - hours) * 60);
+  if (minutes === 60) {
+    hours += 1;
+    minutes = 0;
   }
-
-  const value = Number(to) - Number(from);
-  return Number.isFinite(value) ? round2(value) : null;
+  hours %= 24;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 };
 
 export const activityLineHours = (line) => {
@@ -88,59 +87,88 @@ export const isWithinShift = (lineTime, timeIn, timeOut) => {
   return normalized >= start && normalized <= end;
 };
 
-export const entryMetersDrilled = (entry) => {
-  const lines = entry?.activityLines || [];
-  return round2(lines.reduce((sum, line) => sum + (activityLineDrilledMeters(line) ?? 0), 0));
-};
-
-export const entryMetersRecovered = (entry) => {
-  const lines = entry?.activityLines || [];
-  const hasAny = lines.some(
-    (line) =>
-      line?.recoveryMeters !== null && line?.recoveryMeters !== undefined && line?.recoveryMeters !== ''
-  );
-
-  if (!hasAny) {
-    return null;
-  }
-
-  return round2(lines.reduce((sum, line) => sum + (Number(line?.recoveryMeters) || 0), 0));
-};
-
 export const entryTotalHours = (entry) => {
   const lines = entry?.activityLines || [];
   return round2(lines.reduce((sum, line) => sum + (activityLineHours(line) ?? 0), 0));
 };
 
-export const entryMileageTotal = (entry) => {
-  const start = entry?.mileageStart;
-  const end = entry?.mileageEnd;
-
-  if (
-    start === null ||
-    start === undefined ||
-    start === '' ||
-    end === null ||
-    end === undefined ||
-    end === ''
-  ) {
+/**
+ * Normalizes each line's [timeFrom,timeTo) into a 0..48 minute-resolution range
+ * relative to the shift's Time In, so an overnight shift (Time Out <= Time In)
+ * and overnight lines resolve consistently. Lines with unparsable times are skipped.
+ */
+const normalizeLineRanges = (lines, timeIn, timeOut) => {
+  const start = parseClockHours(timeIn);
+  let end = parseClockHours(timeOut);
+  if (start === null || end === null) {
     return null;
   }
+  if (end <= start) {
+    end += 24;
+  }
 
-  const value = Number(end) - Number(start);
-  return Number.isFinite(value) ? round2(value) : null;
+  const ranges = [];
+  lines.forEach((line, index) => {
+    const from = parseClockHours(line?.timeFrom);
+    const to = parseClockHours(line?.timeTo);
+    if (from === null || to === null) {
+      return;
+    }
+    let normFrom = from < start ? from + 24 : from;
+    let normTo = to <= normFrom ? to + 24 : to;
+    ranges.push({ index, from: normFrom, to: normTo });
+  });
+
+  return { start, end, ranges };
 };
 
-export const entryRecoveryPercent = (entry) => {
-  const drilled = entryMetersDrilled(entry);
-  const recovered = entryMetersRecovered(entry);
-
-  if (!drilled || drilled <= 0) {
+export const findActivityLineOverlap = (lines, timeIn, timeOut) => {
+  const normalized = normalizeLineRanges(lines || [], timeIn, timeOut);
+  if (!normalized) {
     return null;
   }
-  if (recovered === null || recovered === undefined) {
-    return null;
+  const { ranges } = normalized;
+  const sorted = [...ranges].sort((a, b) => a.from - b.from);
+
+  for (let i = 0; i < sorted.length; i += 1) {
+    const line = sorted[i];
+    if (line.to <= line.from) {
+      return { type: 'reversed', index: line.index };
+    }
   }
 
-  return round2((recovered / drilled) * 100);
+  for (let i = 1; i < sorted.length; i += 1) {
+    const prev = sorted[i - 1];
+    const current = sorted[i];
+    if (current.from < prev.to) {
+      return { type: 'overlap', indexA: prev.index, indexB: current.index };
+    }
+  }
+
+  return null;
+};
+
+export const findActivityCoverageGap = (lines, timeIn, timeOut) => {
+  const normalized = normalizeLineRanges(lines || [], timeIn, timeOut);
+  if (!normalized) {
+    return null;
+  }
+  const { start, end, ranges } = normalized;
+  const sorted = [...ranges].sort((a, b) => a.from - b.from);
+
+  let cursor = start;
+  for (const range of sorted) {
+    if (range.from > cursor) {
+      return { from: formatClockHours(cursor % 24), to: formatClockHours(range.from % 24) };
+    }
+    if (range.to > cursor) {
+      cursor = range.to;
+    }
+  }
+
+  if (cursor < end) {
+    return { from: formatClockHours(cursor % 24), to: formatClockHours(end % 24) };
+  }
+
+  return null;
 };

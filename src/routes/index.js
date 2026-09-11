@@ -6,7 +6,6 @@ import userRoutes from './userRoutes.js';
 import jobRoutes from './jobRoutes.js';
 import timeLogRoutes from './timeLogRoutes.js';
 import dashboardRoutes from './dashboardRoutes.js';
-import bonusConfigRoutes from './bonusConfigRoutes.js';
 import catalogRoutes from './catalogRoutes.js';
 import { makeMasterDataRouter } from './masterDataRoutes.js';
 import { makeMasterDataController } from '../controllers/masterDataController.js';
@@ -111,6 +110,4 @@ router.use(
     }
   )
 );
-router.use('/bonus-config', bonusConfigRoutes);
-
 export default router;

@@ -1,10 +1,4 @@
-import {
-  crewMemberHours,
-  entryMetersDrilled,
-  entryMetersRecovered,
-  entryRecoveryPercent,
-  entryTotalHours
-} from './timeLog.js';
+import { crewMemberHours, parseClockHours } from './timeLog.js';
 
 export const round2 = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
 
@@ -38,87 +32,300 @@ export const resolveDateRange = (query) => {
   };
 };
 
-export const DEFAULT_RECOVERY_THRESHOLD = 85;
-
-export const computeRecoveryPercent = (entry) => entryRecoveryPercent(entry);
-
-export const bonusEligibility = (recoveryPercent, threshold = DEFAULT_RECOVERY_THRESHOLD) => {
-  if (recoveryPercent === null || recoveryPercent === undefined) {
-    return 'not-available';
+const clockDuration = (from, to) => {
+  const start = parseClockHours(from);
+  const end = parseClockHours(to);
+  if (start === null || end === null) {
+    return 0;
   }
-  return recoveryPercent >= threshold ? 'eligible' : 'not-eligible';
+  let diff = end - start;
+  if (diff < 0) {
+    diff += 24;
+  }
+  return round2(diff);
 };
 
-export const computeUserBonus = (entries, employeeType, bonusConfig) => {
-  const threshold = bonusConfig?.recoveryThreshold ?? DEFAULT_RECOVERY_THRESHOLD;
+/**
+ * Client-billable hours = the actual work window (Time Started/Finished).
+ * Employee-paid hours = the full on-site window (Time In/Out), always >= billable.
+ */
+export const entryHours = (entry) => ({
+  billableHours: clockDuration(entry.timeStarted, entry.timeFinished),
+  paidHours:
+    typeof entry.hoursOnSite === 'number' ? entry.hoursOnSite : clockDuration(entry.timeIn, entry.timeOut)
+});
 
-  const eligibleMeters = round2(
-    entries.reduce((sum, entry) => {
-      const recoveryPercent = computeRecoveryPercent(entry);
-      if (recoveryPercent !== null && recoveryPercent >= threshold) {
-        return sum + entryMetersDrilled(entry);
+const jobLabel = (job) => (job ? `${job.jobNumber || '—'} — ${job.clientName || 'Unknown client'}` : 'Unknown job');
+
+export const buildPeriodSummary = (entries) => {
+  let billableHours = 0;
+  let paidHours = 0;
+  const consumableMap = new Map();
+
+  entries.forEach((entry) => {
+    const hours = entryHours(entry);
+    billableHours += hours.billableHours;
+    paidHours += hours.paidHours;
+
+    (entry.consumables || []).forEach((item) => {
+      if (!item.itemName) {
+        return;
       }
-      return sum;
-    }, 0)
-  );
-
-  if (!employeeType) {
-    return { eligibleMeters, amount: null, note: 'No employee type is set for this user' };
-  }
-
-  const table = (bonusConfig?.tierTables || []).find(
-    (tier) => tier.employeeType === employeeType
-  );
-  const bands = [...(table?.bands || [])].sort((a, b) => a.fromMeters - b.fromMeters);
-
-  if (bands.length === 0) {
-    return {
-      eligibleMeters,
-      amount: null,
-      note: `No bonus tier table is configured for ${employeeType}`
-    };
-  }
-
-  if (eligibleMeters <= 0) {
-    return { eligibleMeters: 0, amount: 0, note: 'No recovery-eligible meters in this period' };
-  }
-
-  let matched = bands.find(
-    (band) => eligibleMeters >= band.fromMeters && eligibleMeters <= band.toMeters
-  );
-  let aboveTopBand = false;
-
-  if (!matched) {
-    const topBand = bands[bands.length - 1];
-    if (eligibleMeters > topBand.toMeters) {
-      matched = topBand;
-      aboveTopBand = true;
-    }
-  }
-
-  if (!matched) {
-    return {
-      eligibleMeters,
-      amount: null,
-      note: 'Eligible meters fall outside every configured band'
-    };
-  }
-
-  const amount =
-    matched.rateType === 'flat' ? matched.value : round2(eligibleMeters * matched.value);
+      const current = consumableMap.get(item.itemName) || 0;
+      consumableMap.set(item.itemName, current + (item.qtyUsed || 0));
+    });
+  });
 
   return {
-    eligibleMeters,
-    amount,
-    rateType: matched.rateType,
-    rate: matched.value,
-    band: { fromMeters: matched.fromMeters, toMeters: matched.toMeters },
-    aboveTopBand,
-    note: aboveTopBand
-      ? 'Eligible meters exceed the highest band; the top band was applied'
-      : null
+    entryCount: entries.length,
+    totals: { billableHours: round2(billableHours), paidHours: round2(paidHours) },
+    consumables: [...consumableMap.entries()]
+      .map(([itemName, qtyUsed]) => ({ itemName, qtyUsed: round2(qtyUsed) }))
+      .sort((a, b) => a.itemName.localeCompare(b.itemName))
   };
 };
+
+export const buildEntryHoursBreakdown = (entries) =>
+  entries.map((entry) => {
+    const hours = entryHours(entry);
+    return {
+      entryId: entry._id,
+      date: entry.date,
+      shift: entry.shift || null,
+      jobId: entry.jobId?._id ? String(entry.jobId._id) : null,
+      jobNumber: entry.jobId?.jobNumber || null,
+      clientName: entry.jobId?.clientName || null,
+      manager: entry.userId?.name || null,
+      userId: entry.userId?._id ? String(entry.userId._id) : null,
+      timeIn: entry.timeIn || null,
+      timeOut: entry.timeOut || null,
+      timeStarted: entry.timeStarted || null,
+      timeFinished: entry.timeFinished || null,
+      billableHours: hours.billableHours,
+      paidHours: hours.paidHours
+    };
+  });
+
+/** Hours report — "by client": one row per job within range, billable+paid totals. */
+export const buildClientHoursReport = (entries) => {
+  const jobs = new Map();
+
+  entries.forEach((entry) => {
+    const job = entry.jobId;
+    const key = job?._id ? String(job._id) : 'unknown';
+    if (!jobs.has(key)) {
+      jobs.set(key, {
+        jobId: key,
+        jobNumber: job?.jobNumber || null,
+        clientName: job?.clientName || null,
+        entryCount: 0,
+        billableHours: 0,
+        paidHours: 0
+      });
+    }
+    const hours = entryHours(entry);
+    const row = jobs.get(key);
+    row.entryCount += 1;
+    row.billableHours = round2(row.billableHours + hours.billableHours);
+    row.paidHours = round2(row.paidHours + hours.paidHours);
+  });
+
+  const jobRows = [...jobs.values()].sort((a, b) => (a.jobNumber || '').localeCompare(b.jobNumber || ''));
+  const totals = jobRows.reduce(
+    (acc, row) => ({
+      billableHours: round2(acc.billableHours + row.billableHours),
+      paidHours: round2(acc.paidHours + row.paidHours)
+    }),
+    { billableHours: 0, paidHours: 0 }
+  );
+
+  return { jobs: jobRows, totals, entryCount: entries.length };
+};
+
+/** Hours report — "by employee": crew member's daily entries + totals (their own paid hours). */
+export const buildEmployeeHoursReport = (entries) => {
+  const employees = new Map();
+
+  entries.forEach((entry) => {
+    (entry.crew || []).forEach((member) => {
+      const employee = member.employeeId;
+      const key = String(employee?._id || employee?.id || employee || 'unknown');
+      if (!employees.has(key)) {
+        employees.set(key, {
+          employeeId: key,
+          name: employee?.name || 'Unknown employee',
+          employeeType: employee?.employeeType || null,
+          days: [],
+          totalHours: 0
+        });
+      }
+      const hours = crewMemberHours(member);
+      const record = employees.get(key);
+      record.days.push({
+        date: entry.date,
+        jobId: entry.jobId?._id ? String(entry.jobId._id) : null,
+        jobNumber: entry.jobId?.jobNumber || null,
+        clientName: entry.jobId?.clientName || null,
+        timeIn: member.timeIn || null,
+        timeOut: member.timeOut || null,
+        hours
+      });
+      record.totalHours = round2(record.totalHours + hours);
+    });
+  });
+
+  return [...employees.values()]
+    .map((record) => ({
+      ...record,
+      days: record.days.sort((a, b) => new Date(a.date) - new Date(b.date))
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+};
+
+/** Hours report — manager's own on-site (paid) hours across the shifts they authored. */
+export const buildManagerHoursReport = (entries) => {
+  const managers = new Map();
+
+  entries.forEach((entry) => {
+    const manager = entry.userId;
+    const key = String(manager?._id || manager?.id || manager || 'unknown');
+    if (!managers.has(key)) {
+      managers.set(key, {
+        userId: key,
+        name: manager?.name || 'Unknown manager',
+        days: [],
+        totalHours: 0
+      });
+    }
+    const hours = entryHours(entry);
+    const record = managers.get(key);
+    record.days.push({
+      date: entry.date,
+      jobId: entry.jobId?._id ? String(entry.jobId._id) : null,
+      jobNumber: entry.jobId?.jobNumber || null,
+      clientName: entry.jobId?.clientName || null,
+      timeIn: entry.timeIn || null,
+      timeOut: entry.timeOut || null,
+      hours: hours.paidHours
+    });
+    record.totalHours = round2(record.totalHours + hours.paidHours);
+  });
+
+  return [...managers.values()]
+    .map((record) => ({ ...record, days: record.days.sort((a, b) => new Date(a.date) - new Date(b.date)) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+};
+
+const CONSUMABLE_UNIT = 'qty';
+const FUEL_TYPES = [
+  { key: 'dyedLt', label: 'Dyed' },
+  { key: 'dieselLt', label: 'Diesel' },
+  { key: 'gasolineLt', label: 'Gasoline' }
+];
+
+/** Consumables ledger: item -> total qty used in range, drillable by job. */
+export const buildConsumablesLedger = (entries) => {
+  const items = new Map();
+
+  entries.forEach((entry) => {
+    (entry.consumables || []).forEach((item) => {
+      if (!item.itemName || !item.qtyUsed) {
+        return;
+      }
+      if (!items.has(item.itemName)) {
+        items.set(item.itemName, { itemName: item.itemName, totalQtyUsed: 0, jobs: new Map() });
+      }
+      const record = items.get(item.itemName);
+      record.totalQtyUsed = round2(record.totalQtyUsed + item.qtyUsed);
+
+      const jobKey = entry.jobId?._id ? String(entry.jobId._id) : 'unknown';
+      const prev = record.jobs.get(jobKey) || { jobId: jobKey, label: jobLabel(entry.jobId), qtyUsed: 0 };
+      prev.qtyUsed = round2(prev.qtyUsed + item.qtyUsed);
+      record.jobs.set(jobKey, prev);
+    });
+  });
+
+  return [...items.values()]
+    .map((record) => ({
+      itemName: record.itemName,
+      unit: CONSUMABLE_UNIT,
+      totalQtyUsed: record.totalQtyUsed,
+      jobs: [...record.jobs.values()].sort((a, b) => b.qtyUsed - a.qtyUsed)
+    }))
+    .sort((a, b) => a.itemName.localeCompare(b.itemName));
+};
+
+/** Fuel ledger: fuel type -> total litres used in range, drillable by job. */
+export const buildFuelLedger = (entries) =>
+  FUEL_TYPES.map(({ key, label }) => {
+    const jobs = new Map();
+    let totalLt = 0;
+
+    entries.forEach((entry) => {
+      const qty = entry.fuel?.[key];
+      if (!qty) {
+        return;
+      }
+      totalLt = round2(totalLt + qty);
+      const jobKey = entry.jobId?._id ? String(entry.jobId._id) : 'unknown';
+      const prev = jobs.get(jobKey) || { jobId: jobKey, label: jobLabel(entry.jobId), qtyLt: 0 };
+      prev.qtyLt = round2(prev.qtyLt + qty);
+      jobs.set(jobKey, prev);
+    });
+
+    return {
+      type: label,
+      totalLt,
+      jobs: [...jobs.values()].sort((a, b) => b.qtyLt - a.qtyLt)
+    };
+  });
+
+const groupEntriesByMonth = (entries) => {
+  const months = new Map();
+
+  entries.forEach((entry) => {
+    const date = new Date(entry.date);
+    const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+    if (!months.has(key)) {
+      const from = startOfUtcMonth(date.getUTCFullYear(), date.getUTCMonth());
+      months.set(key, {
+        key,
+        label: monthLabel(from),
+        from,
+        to: endOfUtcMonth(date.getUTCFullYear(), date.getUTCMonth()),
+        entries: []
+      });
+    }
+    months.get(key).entries.push(entry);
+  });
+
+  return [...months.values()].sort((a, b) => a.key.localeCompare(b.key));
+};
+
+export const buildConsumablesMonthlyBreakdown = (entries) =>
+  groupEntriesByMonth(entries).map((month) => ({
+    key: month.key,
+    label: month.label,
+    from: month.from,
+    to: month.to,
+    items: buildConsumablesLedger(month.entries).map((item) => ({
+      itemName: item.itemName,
+      qtyUsed: item.totalQtyUsed
+    }))
+  }));
+
+export const buildFuelMonthlyBreakdown = (entries) =>
+  groupEntriesByMonth(entries).map((month) => {
+    const byType = buildFuelLedger(month.entries);
+    return {
+      key: month.key,
+      label: month.label,
+      from: month.from,
+      to: month.to,
+      totalLt: round2(byType.reduce((sum, type) => sum + type.totalLt, 0)),
+      byType: byType.map((type) => ({ type: type.type, totalLt: type.totalLt }))
+    };
+  });
 
 const crewShape = (crew = []) =>
   crew.map((member) => ({
@@ -189,207 +396,4 @@ export const computeSchedulingRows = (jobs, entries) => {
   });
 
   return rows;
-};
-
-export const buildTotals = (entries, threshold = DEFAULT_RECOVERY_THRESHOLD) => {
-  const totals = {
-    hoursOnSite: 0,
-    standbyHours: 0,
-    otherHours: 0,
-    metersDrilled: 0,
-    metersRecovered: 0,
-    totalHours: 0
-  };
-  const consumableMap = new Map();
-  const bonus = { eligible: 0, 'not-eligible': 0, 'not-available': 0 };
-
-  entries.forEach((entry) => {
-    totals.hoursOnSite += entry.hoursOnSite || 0;
-    totals.standbyHours += entry.standbyHours || 0;
-    totals.otherHours += entry.otherHours || 0;
-    totals.metersDrilled += entryMetersDrilled(entry);
-    totals.metersRecovered += entryMetersRecovered(entry) || 0;
-    totals.totalHours += entryTotalHours(entry);
-
-    (entry.consumables || []).forEach((item) => {
-      if (!item.itemName) {
-        return;
-      }
-      const current = consumableMap.get(item.itemName) || 0;
-      consumableMap.set(item.itemName, current + (item.qtyUsed || 0));
-    });
-
-    bonus[bonusEligibility(computeRecoveryPercent(entry), threshold)] += 1;
-  });
-
-  return {
-    entryCount: entries.length,
-    totals: {
-      hoursOnSite: round2(totals.hoursOnSite),
-      standbyHours: round2(totals.standbyHours),
-      otherHours: round2(totals.otherHours),
-      totalLoggedHours: round2(totals.hoursOnSite + totals.standbyHours + totals.otherHours),
-      metersDrilled: round2(totals.metersDrilled),
-      metersRecovered: round2(totals.metersRecovered),
-      totalHours: round2(totals.totalHours)
-    },
-    consumables: [...consumableMap.entries()]
-      .map(([itemName, qtyUsed]) => ({ itemName, qtyUsed: round2(qtyUsed) }))
-      .sort((a, b) => a.itemName.localeCompare(b.itemName)),
-    bonusEligibility: bonus
-  };
-};
-
-export const buildEntryBreakdown = (entries, threshold = DEFAULT_RECOVERY_THRESHOLD) =>
-  entries.map((entry) => {
-    const recoveryPercent = computeRecoveryPercent(entry);
-    return {
-      entryId: entry._id,
-      date: entry.date,
-      shift: entry.shift || null,
-      jobId: entry.jobId?._id ? String(entry.jobId._id) : null,
-      jobNumber: entry.jobId?.jobNumber || null,
-      clientName: entry.jobId?.clientName || null,
-      operator: entry.userId?.name || null,
-      userId: entry.userId?._id ? String(entry.userId._id) : null,
-      timeIn: entry.timeIn || null,
-      timeOut: entry.timeOut || null,
-      metersDrilled: entryMetersDrilled(entry),
-      metersRecovered: entryMetersRecovered(entry),
-      recoveryPercent,
-      eligibility: bonusEligibility(recoveryPercent, threshold),
-      totalHours: entryTotalHours(entry),
-      totalLoggedHours: round2(
-        (entry.hoursOnSite || 0) + (entry.standbyHours || 0) + (entry.otherHours || 0)
-      ),
-      hoursOnSite: entry.hoursOnSite ?? null,
-      standbyHours: entry.standbyHours ?? null
-    };
-  });
-
-export const buildEmployeeGroups = (entries, threshold, bonusConfig) => {
-  const groups = new Map();
-
-  entries.forEach((entry) => {
-    (entry.crew || []).forEach((member) => {
-      const employee = member.employeeId;
-      const key = String(employee?._id || employee?.id || employee || 'unknown');
-
-      if (!groups.has(key)) {
-        groups.set(key, {
-          key,
-          label: employee?.name || 'Unknown employee',
-          employeeType: employee?.employeeType || null,
-          rows: []
-        });
-      }
-      groups.get(key).rows.push({ entry, member });
-    });
-  });
-
-  return [...groups.values()]
-    .map((group) => {
-      const groupEntries = group.rows.map((row) => row.entry);
-      const base = buildTotals(groupEntries, threshold);
-      const crewHours = round2(
-        group.rows.reduce((sum, row) => sum + crewMemberHours(row.member), 0)
-      );
-      const recoveryPercent =
-        base.totals.metersDrilled > 0
-          ? round2((base.totals.metersRecovered / base.totals.metersDrilled) * 100)
-          : null;
-
-      return {
-        key: group.key,
-        label: group.label,
-        employeeType: group.employeeType,
-        entryCount: groupEntries.length,
-        totals: { ...base.totals, totalHours: crewHours, totalLoggedHours: crewHours },
-        consumables: base.consumables,
-        bonusEligibility: base.bonusEligibility,
-        recoveryPercent,
-        bonus: computeUserBonus(groupEntries, group.employeeType, bonusConfig)
-      };
-    })
-    .sort((a, b) => a.label.localeCompare(b.label));
-};
-
-export const buildReportData = (entries, bonusConfig, { groupBy } = {}) => {
-  const threshold = bonusConfig?.recoveryThreshold ?? DEFAULT_RECOVERY_THRESHOLD;
-  const base = buildTotals(entries, threshold);
-  const employeeGroups = buildEmployeeGroups(entries, threshold, bonusConfig);
-  const managerGroups = buildGroups(entries, 'user', threshold, bonusConfig);
-
-  const bonusTotalAmount = round2(
-    [...employeeGroups, ...managerGroups].reduce(
-      (sum, group) => sum + (typeof group.bonus?.amount === 'number' ? group.bonus.amount : 0),
-      0
-    )
-  );
-
-  const recoveryPercentOverall =
-    base.totals.metersDrilled > 0
-      ? round2((base.totals.metersRecovered / base.totals.metersDrilled) * 100)
-      : null;
-
-  let groups;
-  if (groupBy === 'employee') {
-    groups = employeeGroups;
-  } else if (groupBy === 'job') {
-    groups = buildGroups(entries, 'job', threshold, bonusConfig);
-  }
-
-  return {
-    recoveryThreshold: threshold,
-    entryCount: base.entryCount,
-    totals: base.totals,
-    consumables: base.consumables,
-    bonusEligibility: base.bonusEligibility,
-    recoveryPercentOverall,
-    bonusTotalAmount,
-    entries: buildEntryBreakdown(entries, threshold),
-    groupBy: groupBy || null,
-    groups,
-    managerGroups: groupBy === 'employee' ? managerGroups : undefined
-  };
-};
-
-export const buildGroups = (entries, groupBy, threshold, bonusConfig) => {
-  const groups = new Map();
-
-  entries.forEach((entry) => {
-    const source = groupBy === 'user' ? entry.userId : entry.jobId;
-    const key = source?._id ? source._id.toString() : 'unknown';
-    const label =
-      groupBy === 'user'
-        ? source?.name || 'Unknown operator'
-        : source
-          ? `${source.jobNumber} — ${source.clientName}`
-          : 'Unknown job';
-
-    if (!groups.has(key)) {
-      groups.set(key, {
-        key,
-        label,
-        employeeType: groupBy === 'user' ? source?.employeeType || null : null,
-        entries: []
-      });
-    }
-    groups.get(key).entries.push(entry);
-  });
-
-  return [...groups.values()]
-    .map((group) => {
-      const result = {
-        key: group.key,
-        label: group.label,
-        ...buildTotals(group.entries, threshold)
-      };
-      if (groupBy === 'user') {
-        result.employeeType = group.employeeType;
-        result.bonus = computeUserBonus(group.entries, group.employeeType, bonusConfig);
-      }
-      return result;
-    })
-    .sort((a, b) => a.label.localeCompare(b.label));
 };

@@ -9,7 +9,6 @@ import Location from '../models/Location.js';
 import RigNumber from '../models/RigNumber.js';
 import Activity from '../models/Activity.js';
 import Consumable from '../models/Consumable.js';
-import BonusConfig from '../models/BonusConfig.js';
 
 const DEMO_DOMAIN = 'groundworkdrilling.demo';
 const DEMO_JOB_PREFIX = 'DEMO-';
@@ -85,10 +84,9 @@ const clearDemoData = async () => {
 };
 
 const loadReferenceData = async () => {
-  const [locations, rigs, bonusConfig, employees] = await Promise.all([
+  const [locations, rigs, employees] = await Promise.all([
     Location.find({ active: true }),
     RigNumber.find({ active: true }),
-    BonusConfig.getSingleton(),
     Employee.find({ active: true })
   ]);
 
@@ -122,7 +120,6 @@ const loadReferenceData = async () => {
   return {
     locations,
     rigs,
-    bonusConfig,
     employees,
     activityIds: activities.map((activity) => activity._id),
     consumables: { bit, grease }
@@ -199,40 +196,38 @@ const createDemoJobs = async (siteManagers, employees, locations, rigs) => {
   return created;
 };
 
-const buildActivityLines = (totalMeters, recoveryRatio, activityIds, seed) => {
-  const lineCount = totalMeters > 130 ? 2 : 1;
-  const windows = [
-    { from: '07:00', to: '11:30' },
-    { from: '12:00', to: '16:30' }
-  ];
+const buildActivityLines = (timeIn, timeOut, activityIds, seed) => {
+  const lineCount = seed % 3 === 0 ? 3 : 2;
+  const start = parseClock(timeIn);
+  const end = parseClock(timeOut) <= start ? parseClock(timeOut) + 24 : parseClock(timeOut);
+  const span = (end - start) / lineCount;
+
   const lines = [];
-  let depth = round1(between(2, 40));
-
   for (let line = 0; line < lineCount; line += 1) {
-    const done = lines.reduce((sum, existing) => sum + (existing.depthTo - existing.depthFrom), 0);
-    const meters =
-      line === lineCount - 1 ? round1(totalMeters - done) : round1(totalMeters / lineCount);
-    const depthFrom = round1(depth);
-    const depthTo = round1(depth + meters);
-
     lines.push({
       boreholeRef: '',
       description: '',
       activityId: activityIds[(seed + line) % activityIds.length],
       comments: line === 0 ? '' : 'Core run resumed after tool inspection',
-      depth: null,
-      depthFrom,
-      depthTo,
-      recoveryMeters: round1(meters * recoveryRatio),
-      timeFrom: windows[line].from,
-      timeTo: windows[line].to,
+      timeFrom: formatClock(start + line * span),
+      timeTo: formatClock(start + (line + 1) * span),
       chargeTime: null,
       ncTime: null
     });
-    depth = depthTo;
   }
 
   return lines;
+};
+
+const parseClock = (value) => {
+  const [h, m] = value.split(':').map(Number);
+  return h + m / 60;
+};
+
+const formatClock = (value) => {
+  let hours = Math.floor(value) % 24;
+  const minutes = Math.round((value - Math.floor(value)) * 60);
+  return `${pad(hours)}:${pad(minutes)}`;
 };
 
 const clockGap = (from, to) => {
@@ -245,16 +240,16 @@ const clockGap = (from, to) => {
   return round1(diff);
 };
 
-const buildEntry = ({ job, userId, shift, when, day, status, meters, recoveryRatio, seed, activityIds, consumables }) => {
-  const lines = buildActivityLines(meters, recoveryRatio, activityIds, seed);
+const buildEntry = ({ job, userId, shift, when, day, status, seed, activityIds, consumables }) => {
   const isDay = shift === 'Day';
+  const timeIn = isDay ? '06:30' : '18:30';
+  const timeOut = isDay ? '18:30' : '06:30';
   const timeStarted = isDay ? '07:00' : '19:00';
   const timeFinished = isDay ? '18:00' : '06:00';
-  const crewIn = isDay ? '06:30' : '18:30';
-  const crewOut = isDay ? '18:30' : '06:30';
+  const lines = buildActivityLines(timeIn, timeOut, activityIds, seed);
   const crew = (job.rosterEmployeeIds || [])
     .slice(0, 2 + (seed % 2))
-    .map((employeeId) => ({ employeeId, timeIn: crewIn, timeOut: crewOut }));
+    .map((employeeId) => ({ employeeId, timeIn, timeOut }));
 
   return {
     jobId: job._id,
@@ -262,18 +257,11 @@ const buildEntry = ({ job, userId, shift, when, day, status, meters, recoveryRat
     date: dayDate(when, day),
     shift,
     crew,
+    timeIn,
+    timeOut,
     timeStarted,
     timeFinished,
-    hoursOnSite: clockGap(timeStarted, timeFinished),
-    standbyHours: seed % 4 === 0 ? round1(between(0.5, 2)) : null,
-    otherHours: seed % 6 === 0 ? round1(between(0.5, 1)) : null,
-    mileageStart: null,
-    mileageEnd: null,
-    wellTag: {
-      installed: seed % 5 === 0,
-      decommissioned: false,
-      locatesProvidedBy: seed % 5 === 0 ? 'Client survey crew' : ''
-    },
+    hoursOnSite: clockGap(timeIn, timeOut),
     activityLines: lines,
     fuel: {
       dyedLt: seed % 3 === 0 ? round1(between(40, 90)) : null,
@@ -333,8 +321,6 @@ const createDemoEntries = async (siteManagers, jobs, activityIds, consumables) =
           when: CURRENT,
           day: spreadDay(index),
           status: 'submitted',
-          meters: round1(plan.eligibleMeters / plan.eligibleCount),
-          recoveryRatio: between(0.88, 0.96),
           seed: index,
           activityIds,
           consumables
@@ -353,8 +339,6 @@ const createDemoEntries = async (siteManagers, jobs, activityIds, consumables) =
           when: CURRENT,
           day: spreadDay(index),
           status: 'submitted',
-          meters: round1(between(45, 120)),
-          recoveryRatio: between(0.72, 0.83),
           seed: index,
           activityIds,
           consumables
@@ -373,8 +357,6 @@ const createDemoEntries = async (siteManagers, jobs, activityIds, consumables) =
           when: CURRENT,
           day: spreadDay(index),
           status: 'draft',
-          meters: round1(between(60, 140)),
-          recoveryRatio: between(0.8, 0.95),
           seed: index,
           activityIds,
           consumables
@@ -394,8 +376,6 @@ const createDemoEntries = async (siteManagers, jobs, activityIds, consumables) =
           when: PREVIOUS,
           day: spreadDay(prevIndex),
           status: 'submitted',
-          meters: round1(between(90, 220)),
-          recoveryRatio: between(0.8, 0.95),
           seed: prevIndex + 1,
           activityIds,
           consumables
@@ -416,8 +396,6 @@ const createDemoEntries = async (siteManagers, jobs, activityIds, consumables) =
           when: CURRENT,
           day: 4 + position * 5,
           status: 'draft',
-          meters: round1(between(80, 160)),
-          recoveryRatio: between(0.82, 0.94),
           seed: position,
           activityIds,
           consumables

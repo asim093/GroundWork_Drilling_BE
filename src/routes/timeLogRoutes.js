@@ -4,11 +4,13 @@ import {
   listTimeLogs,
   listMyTimeLogs,
   listScheduling,
-  reportsSummary,
+  reportsHours,
+  reportsConsumables,
+  reportsFuel,
   reportsMine,
-  reportsSummaryExport,
-  reportsMineExport,
-  reportsMonthlyComparison,
+  reportsHoursExport,
+  reportsConsumablesExport,
+  reportsFuelExport,
   getTimeLog,
   createTimeLog,
   updateTimeLog,
@@ -32,25 +34,19 @@ const exportFormatValidator = query('format')
   .isIn(EXPORT_FORMATS)
   .withMessage('Format must be pdf or xlsx');
 
-const chartBodyValidators = [
-  body('charts').optional().isArray().withMessage('Charts must be a list'),
-  body('charts.*.title').optional().isString().withMessage('Chart title must be text'),
-  body('charts.*.dataUrl')
-    .optional()
-    .isString()
-    .withMessage('Chart image must be a data URL')
-    .bail()
-    .matches(/^data:image\/png;base64,/)
-    .withMessage('Chart image must be a PNG data URL')
+const reportFilterValidators = [
+  query('job').optional().isMongoId().withMessage('Invalid job id'),
+  query('user').optional().isMongoId().withMessage('Invalid user id'),
+  query('employee').optional().isMongoId().withMessage('Invalid employee id'),
+  query('client').optional().isString().trim()
 ];
 
-const NUMBER_FIELDS = [
-  'hoursOnSite',
-  'standbyHours',
-  'otherHours',
-  'mileageStart',
-  'mileageEnd'
-];
+const hoursScopeValidator = query('scope')
+  .optional()
+  .isIn(['client', 'employee', 'manager'])
+  .withMessage('Scope must be client, employee or manager');
+
+const NUMBER_FIELDS = ['hoursOnSite'];
 
 const listValidators = [
   query('status').optional().isIn(STATUS_VALUES).withMessage('Status must be draft or submitted'),
@@ -80,43 +76,6 @@ const entryBodyValidators = [
       .withMessage(`${field} must be a number`)
   ),
   body('activityLines').optional().isArray().withMessage('Activity lines must be a list'),
-  body('activityLines.*.depthFrom')
-    .optional({ nullable: true })
-    .isFloat({ min: 0 })
-    .withMessage('Depth from must be a number'),
-  body('activityLines.*.depthTo')
-    .optional({ nullable: true })
-    .isFloat({ min: 0 })
-    .withMessage('Depth to must be a number')
-    .bail()
-    .custom((value, { req, pathValues }) => {
-      const line = req.body.activityLines?.[pathValues[0]] || {};
-      const from = line.depthFrom;
-      if (from !== null && from !== undefined && from !== '' && Number(value) < Number(from)) {
-        throw new Error('Depth to cannot be less than depth from');
-      }
-      return true;
-    }),
-  body('activityLines.*.recoveryMeters')
-    .optional({ nullable: true })
-    .isFloat({ min: 0 })
-    .withMessage('Recovery meters must be a number')
-    .bail()
-    .custom((value, { req, pathValues }) => {
-      const line = req.body.activityLines?.[pathValues[0]] || {};
-      const { depthFrom, depthTo } = line;
-      const hasRange =
-        depthFrom !== null &&
-        depthFrom !== undefined &&
-        depthFrom !== '' &&
-        depthTo !== null &&
-        depthTo !== undefined &&
-        depthTo !== '';
-      if (hasRange && Number(value) > Number(depthTo) - Number(depthFrom)) {
-        throw new Error('Recovery meters cannot exceed drilled meters for the run');
-      }
-      return true;
-    }),
   body('activityLines.*.timeFrom')
     .optional({ nullable: true })
     .isString()
@@ -131,8 +90,7 @@ const entryBodyValidators = [
     .withMessage('Invalid activity'),
   body('activityLines.*.comments').optional({ nullable: true }).isString().trim(),
   body('consumables').optional().isArray().withMessage('Consumables must be a list'),
-  body('fuel').optional().isObject().withMessage('Fuel must be an object'),
-  body('wellTag').optional().isObject().withMessage('Well tag must be an object')
+  body('fuel').optional().isObject().withMessage('Fuel must be an object')
 ];
 
 const router = Router();
@@ -164,42 +122,62 @@ router.get(
 );
 
 router.get(
-  '/reports/summary',
+  '/reports/hours',
   authorize('admin'),
   ...dateRangeValidators,
-  query('groupBy').optional().isIn(['employee', 'job']).withMessage('groupBy must be employee or job'),
-  query('job').optional().isMongoId().withMessage('Invalid job id'),
-  query('user').optional().isMongoId().withMessage('Invalid user id'),
-  query('employee').optional().isMongoId().withMessage('Invalid employee id'),
+  ...reportFilterValidators,
+  hoursScopeValidator,
   validate,
-  asyncHandler(reportsSummary)
+  asyncHandler(reportsHours)
 );
 
 router.get(
-  '/reports/summary/export',
+  '/reports/hours/export',
   authorize('admin'),
   ...dateRangeValidators,
-  query('groupBy').optional().isIn(['employee', 'job']).withMessage('groupBy must be employee or job'),
-  query('job').optional().isMongoId().withMessage('Invalid job id'),
-  query('user').optional().isMongoId().withMessage('Invalid user id'),
-  query('employee').optional().isMongoId().withMessage('Invalid employee id'),
+  ...reportFilterValidators,
+  hoursScopeValidator,
   exportFormatValidator,
   validate,
-  asyncHandler(reportsSummaryExport)
+  asyncHandler(reportsHoursExport)
 );
 
-router.post(
-  '/reports/summary/export',
+router.get(
+  '/reports/consumables',
   authorize('admin'),
   ...dateRangeValidators,
-  query('groupBy').optional().isIn(['employee', 'job']).withMessage('groupBy must be employee or job'),
-  query('job').optional().isMongoId().withMessage('Invalid job id'),
-  query('user').optional().isMongoId().withMessage('Invalid user id'),
-  query('employee').optional().isMongoId().withMessage('Invalid employee id'),
-  exportFormatValidator,
-  ...chartBodyValidators,
+  ...reportFilterValidators,
   validate,
-  asyncHandler(reportsSummaryExport)
+  asyncHandler(reportsConsumables)
+);
+
+router.get(
+  '/reports/consumables/export',
+  authorize('admin'),
+  ...dateRangeValidators,
+  ...reportFilterValidators,
+  exportFormatValidator,
+  validate,
+  asyncHandler(reportsConsumablesExport)
+);
+
+router.get(
+  '/reports/fuel',
+  authorize('admin'),
+  ...dateRangeValidators,
+  ...reportFilterValidators,
+  validate,
+  asyncHandler(reportsFuel)
+);
+
+router.get(
+  '/reports/fuel/export',
+  authorize('admin'),
+  ...dateRangeValidators,
+  ...reportFilterValidators,
+  exportFormatValidator,
+  validate,
+  asyncHandler(reportsFuelExport)
 );
 
 router.get(
@@ -208,34 +186,6 @@ router.get(
   ...dateRangeValidators,
   validate,
   asyncHandler(reportsMine)
-);
-
-router.get(
-  '/reports/mine/export',
-  authorize('operator'),
-  ...dateRangeValidators,
-  exportFormatValidator,
-  validate,
-  asyncHandler(reportsMineExport)
-);
-
-router.post(
-  '/reports/mine/export',
-  authorize('operator'),
-  ...dateRangeValidators,
-  exportFormatValidator,
-  ...chartBodyValidators,
-  validate,
-  asyncHandler(reportsMineExport)
-);
-
-router.get(
-  '/reports/monthly-comparison',
-  authorize('admin'),
-  query('month').optional().isInt({ min: 1, max: 12 }).withMessage('Month must be between 1 and 12'),
-  query('year').optional().isInt({ min: 2000, max: 2100 }).withMessage('Year must be a valid year'),
-  validate,
-  asyncHandler(reportsMonthlyComparison)
 );
 
 router.post(

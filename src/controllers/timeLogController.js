@@ -1,25 +1,35 @@
 import TimeLogEntry from '../models/TimeLogEntry.js';
 import Job from '../models/Job.js';
-import User from '../models/User.js';
-import Employee from '../models/Employee.js';
-import BonusConfig from '../models/BonusConfig.js';
 import { buildListOptions, buildPaginationMeta } from '../utils/listQuery.js';
 import {
   resolveDateRange,
-  monthLabel,
-  startOfUtcMonth,
-  endOfUtcMonth,
   computeSchedulingRows,
-  buildReportData,
-  computeUserBonus
+  buildPeriodSummary,
+  buildEntryHoursBreakdown,
+  buildClientHoursReport,
+  buildEmployeeHoursReport,
+  buildManagerHoursReport,
+  buildConsumablesLedger,
+  buildConsumablesMonthlyBreakdown,
+  buildFuelLedger,
+  buildFuelMonthlyBreakdown
 } from '../utils/reporting.js';
 import {
-  buildReportWorkbookBuffer,
-  buildReportPdfBuffer,
+  buildHoursReportWorkbookBuffer,
+  buildHoursReportPdfBuffer,
+  buildConsumablesReportWorkbookBuffer,
+  buildConsumablesReportPdfBuffer,
+  buildFuelReportWorkbookBuffer,
+  buildFuelReportPdfBuffer,
   exportFilename,
   EXPORT_CONTENT_TYPES
 } from '../utils/reportExport.js';
-import { startOfUtcDay, isWithinShift } from '../utils/timeLog.js';
+import {
+  startOfUtcDay,
+  isWithinShift,
+  findActivityLineOverlap,
+  findActivityCoverageGap
+} from '../utils/timeLog.js';
 
 const SORTABLE_FIELDS = ['date', 'createdAt', 'updatedAt', 'status'];
 const JOB_PROJECTION =
@@ -49,11 +59,6 @@ const EDITABLE_FIELDS = [
   'timeStarted',
   'timeFinished',
   'hoursOnSite',
-  'standbyHours',
-  'otherHours',
-  'mileageStart',
-  'mileageEnd',
-  'wellTag',
   'activityLines',
   'fuel',
   'consumables'
@@ -289,79 +294,83 @@ const fetchSubmittedEntries = (from, to, extra = {}) =>
     .populate('crew.employeeId', 'name employeeType')
     .lean();
 
-const resolveGroupBy = (value) => (value === 'employee' || value === 'job' ? value : null);
-
-const loadAdminReport = async (query) => {
-  const { from, to } = resolveDateRange(query);
-
+const buildEntryFilter = async (query) => {
   const extra = {};
-  let scope = 'All crew';
   if (query.user) {
     extra.userId = query.user;
-    const target = await User.findById(query.user).select('name');
-    scope = target ? `Manager: ${target.name}` : 'Manager';
   }
   if (query.employee) {
     extra['crew.employeeId'] = query.employee;
-    const target = await Employee.findById(query.employee).select('name');
-    scope = target ? `Employee: ${target.name}` : 'Employee';
   }
   if (query.job) {
     extra.jobId = query.job;
-    const job = await Job.findById(query.job).select('jobNumber');
-    scope = job ? `Job: ${job.jobNumber}` : 'Job';
+  }
+  return extra;
+};
+
+const filterByClientName = (entries, clientName) =>
+  clientName ? entries.filter((entry) => entry.jobId?.clientName === clientName) : entries;
+
+export const reportsHours = async (req, res) => {
+  const { from, to } = resolveDateRange(req.query);
+  const extra = await buildEntryFilter(req.query);
+  const entries = filterByClientName(await fetchSubmittedEntries(from, to, extra), req.query.client);
+
+  const scope = req.query.scope === 'employee' ? 'employee' : req.query.scope === 'manager' ? 'manager' : 'client';
+
+  const data = { from, to, scope, entryCount: entries.length };
+  if (scope === 'employee') {
+    data.employees = buildEmployeeHoursReport(entries);
+  } else if (scope === 'manager') {
+    data.managers = buildManagerHoursReport(entries);
+  } else {
+    const clientReport = buildClientHoursReport(entries);
+    data.jobs = clientReport.jobs;
+    data.totals = clientReport.totals;
   }
 
-  const [entries, bonusConfig] = await Promise.all([
-    fetchSubmittedEntries(from, to, extra),
-    BonusConfig.getSingleton()
-  ]);
-
-  const report = buildReportData(entries, bonusConfig.toJSON(), {
-    groupBy: resolveGroupBy(query.groupBy)
-  });
-
-  return { from, to, report, scope };
+  res.json({ data });
 };
 
-const loadMyReport = async (req) => {
+export const reportsConsumables = async (req, res) => {
   const { from, to } = resolveDateRange(req.query);
-  const [entries, bonusConfig] = await Promise.all([
-    fetchSubmittedEntries(from, to, { userId: req.user.id }),
-    BonusConfig.getSingleton()
-  ]);
+  const entries = await fetchSubmittedEntries(from, to, await buildEntryFilter(req.query));
+  const items = buildConsumablesLedger(entries);
+  const monthly = buildConsumablesMonthlyBreakdown(entries);
 
-  const config = bonusConfig.toJSON();
-  const report = buildReportData(entries, config, { groupBy: 'employee' });
-  report.employeeType = req.user.employeeType || null;
-  report.bonus = computeUserBonus(entries, req.user.employeeType, config);
-
-  return { from, to, report };
+  res.json({ data: { from, to, items, monthly: monthly.length > 1 ? monthly : [] } });
 };
 
-export const reportsSummary = async (req, res) => {
-  const { from, to, report, scope } = await loadAdminReport(req.query);
-  res.json({ data: { from, to, scope, ...report } });
+export const reportsFuel = async (req, res) => {
+  const { from, to } = resolveDateRange(req.query);
+  const entries = await fetchSubmittedEntries(from, to, await buildEntryFilter(req.query));
+  const byType = buildFuelLedger(entries);
+  const monthly = buildFuelMonthlyBreakdown(entries);
+
+  res.json({ data: { from, to, byType, monthly: monthly.length > 1 ? monthly : [] } });
 };
 
 export const reportsMine = async (req, res) => {
-  const { from, to, report } = await loadMyReport(req);
-  res.json({ data: { from, to, ...report } });
+  const { from, to } = resolveDateRange(req.query);
+  const entries = await fetchSubmittedEntries(from, to, { userId: req.user.id });
+  const summary = buildPeriodSummary(entries);
+  const entryBreakdown = buildEntryHoursBreakdown(entries);
+
+  res.json({
+    data: {
+      from,
+      to,
+      entryCount: summary.entryCount,
+      totals: summary.totals,
+      consumables: summary.consumables,
+      entries: entryBreakdown
+    }
+  });
 };
 
-const collectChartImages = (body) =>
-  Array.isArray(body?.charts)
-    ? body.charts
-        .filter((chart) => chart && typeof chart.dataUrl === 'string' && chart.dataUrl.length > 0)
-        .map((chart) => ({ title: String(chart.title || 'Chart'), dataUrl: chart.dataUrl }))
-    : [];
-
-const sendReportFile = async (res, { report, format, base, meta }) => {
+const sendReportFile = async (res, { format, base, buildBuffer, meta }) => {
   const filename = exportFilename(base, format, meta);
-  const buffer =
-    format === 'pdf'
-      ? await buildReportPdfBuffer(report, meta)
-      : await buildReportWorkbookBuffer(report, meta);
+  const buffer = await buildBuffer(format, meta);
 
   res.setHeader('Content-Type', EXPORT_CONTENT_TYPES[format]);
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -369,79 +378,61 @@ const sendReportFile = async (res, { report, format, base, meta }) => {
   res.send(buffer);
 };
 
-const slugScope = (scope) =>
-  scope
-    .replace(/^Operator:\s*/, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
+export const reportsHoursExport = async (req, res) => {
+  const { from, to } = resolveDateRange(req.query);
+  const extra = await buildEntryFilter(req.query);
+  const entries = filterByClientName(await fetchSubmittedEntries(from, to, extra), req.query.client);
+  const scope = req.query.scope === 'employee' ? 'employee' : req.query.scope === 'manager' ? 'manager' : 'client';
 
-export const reportsSummaryExport = async (req, res) => {
-  const { from, to, report, scope } = await loadAdminReport(req.query);
+  const report = { scope };
+  if (scope === 'employee') {
+    report.employees = buildEmployeeHoursReport(entries);
+  } else if (scope === 'manager') {
+    report.managers = buildManagerHoursReport(entries);
+  } else {
+    Object.assign(report, buildClientHoursReport(entries));
+  }
+
   await sendReportFile(res, {
-    report,
     format: req.query.format,
-    base: req.query.user ? `groundwork-report-${slugScope(scope)}` : 'groundwork-report',
-    meta: {
-      title: 'Groundwork Drilling — Reports',
-      scope,
-      from,
-      to,
-      groupBy: report.groupBy,
-      charts: collectChartImages(req.body)
-    }
+    base: 'groundwork-hours-report',
+    buildBuffer: (format, meta) =>
+      format === 'pdf' ? buildHoursReportPdfBuffer(report, meta) : buildHoursReportWorkbookBuffer(report, meta),
+    meta: { title: 'Groundwork Drilling — Hours Report', scope, from, to }
   });
 };
 
-export const reportsMineExport = async (req, res) => {
-  const { from, to, report } = await loadMyReport(req);
+export const reportsConsumablesExport = async (req, res) => {
+  const { from, to } = resolveDateRange(req.query);
+  const entries = await fetchSubmittedEntries(from, to, await buildEntryFilter(req.query));
+  const items = buildConsumablesLedger(entries);
+  const monthly = buildConsumablesMonthlyBreakdown(entries);
+
   await sendReportFile(res, {
-    report,
     format: req.query.format,
-    base: 'groundwork-my-report',
-    meta: {
-      title: 'Groundwork Drilling — My Reports',
-      scope: `Operator: ${req.user.name}`,
-      from,
-      to,
-      groupBy: null,
-      charts: collectChartImages(req.body)
-    }
+    base: 'groundwork-consumables-report',
+    buildBuffer: (format, meta) =>
+      format === 'pdf'
+        ? buildConsumablesReportPdfBuffer({ items, monthly: monthly.length > 1 ? monthly : [] }, meta)
+        : buildConsumablesReportWorkbookBuffer({ items, monthly: monthly.length > 1 ? monthly : [] }, meta),
+    meta: { title: 'Groundwork Drilling — Consumables Report', from, to }
   });
 };
 
-export const reportsMonthlyComparison = async (req, res) => {
-  const now = new Date();
-  const year = req.query.year ? Number(req.query.year) : now.getUTCFullYear();
-  const month = req.query.month ? Number(req.query.month) : now.getUTCMonth() + 1;
+export const reportsFuelExport = async (req, res) => {
+  const { from, to } = resolveDateRange(req.query);
+  const entries = await fetchSubmittedEntries(from, to, await buildEntryFilter(req.query));
+  const byType = buildFuelLedger(entries);
+  const monthly = buildFuelMonthlyBreakdown(entries);
 
-  const currentFrom = startOfUtcMonth(year, month - 1);
-  const currentTo = endOfUtcMonth(year, month - 1);
-  const previousFrom = startOfUtcMonth(year, month - 2);
-  const previousTo = endOfUtcMonth(year, month - 2);
-
-  const [currentEntries, previousEntries, bonusConfig] = await Promise.all([
-    fetchSubmittedEntries(currentFrom, currentTo),
-    fetchSubmittedEntries(previousFrom, previousTo),
-    BonusConfig.getSingleton()
-  ]);
-  const config = bonusConfig.toJSON();
-
-  res.json({
-    data: {
-      current: {
-        label: monthLabel(currentFrom),
-        from: currentFrom,
-        to: currentTo,
-        ...buildReportData(currentEntries, config, {})
-      },
-      previous: {
-        label: monthLabel(previousFrom),
-        from: previousFrom,
-        to: previousTo,
-        ...buildReportData(previousEntries, config, {})
-      }
-    }
+  await sendReportFile(res, {
+    format: req.query.format,
+    base: 'groundwork-fuel-report',
+    buildBuffer: (format, meta) =>
+      format === 'pdf'
+        ? buildFuelReportPdfBuffer({ byType, monthly: monthly.length > 1 ? monthly : [] }, meta)
+        : buildFuelReportWorkbookBuffer({ byType, monthly: monthly.length > 1 ? monthly : [] }, meta),
+    meta: { title: 'Groundwork Drilling — Fuel Report', from, to }
   });
 };
 
@@ -499,6 +490,28 @@ export const submitTimeLog = async (req, res) => {
     if (outOfWindow !== -1) {
       res.status(422).json({
         message: `Line ${outOfWindow + 1}: activity time is outside the on-site window (Time In to Time Out)`
+      });
+      return;
+    }
+
+    const overlap = findActivityLineOverlap(entry.activityLines, windowStart, windowEnd);
+    if (overlap?.type === 'reversed') {
+      res.status(422).json({
+        message: `Line ${overlap.index + 1}: Time To must be after Time From`
+      });
+      return;
+    }
+    if (overlap?.type === 'overlap') {
+      res.status(422).json({
+        message: `Lines ${overlap.indexA + 1} and ${overlap.indexB + 1} overlap — activity lines cannot cover the same time twice`
+      });
+      return;
+    }
+
+    const gap = findActivityCoverageGap(entry.activityLines, windowStart, windowEnd);
+    if (gap) {
+      res.status(422).json({
+        message: `You're missing an activity between ${gap.from} and ${gap.to} — please add it before submitting.`
       });
       return;
     }

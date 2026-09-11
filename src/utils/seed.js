@@ -10,7 +10,6 @@ import RigNumber from '../models/RigNumber.js';
 import Consumable from '../models/Consumable.js';
 import ActivityCategory from '../models/ActivityCategory.js';
 import Activity from '../models/Activity.js';
-import BonusConfig from '../models/BonusConfig.js';
 import TimeLogEntry from '../models/TimeLogEntry.js';
 import {
   SEED_LOCATIONS,
@@ -18,8 +17,7 @@ import {
   SEED_CONSUMABLES,
   SEED_ACTIVITY_CATEGORIES,
   SEED_ACTIVITIES,
-  SEED_EMPLOYEES,
-  SEED_BONUS_CONFIG
+  SEED_EMPLOYEES
 } from '../config/masterData.js';
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -133,16 +131,6 @@ const seedEmployees = async () => {
   console.log(`Employees: ${created} created, ${await Employee.countDocuments()} total`);
 };
 
-const seedBonusConfig = async () => {
-  const existing = await BonusConfig.findOne();
-  if (existing) {
-    console.log('BonusConfig already exists — left as is');
-    return;
-  }
-  await BonusConfig.create(SEED_BONUS_CONFIG);
-  console.log('BonusConfig seeded (threshold 85, Supervisor/Driller/Helper tiers)');
-};
-
 export const seedBase = async () => {
   await connectDatabase();
 
@@ -158,7 +146,6 @@ export const seedBase = async () => {
   await seedConsumables();
   await seedActivities();
   await seedEmployees();
-  await seedBonusConfig();
 
   await mongoose.connection.close();
 };

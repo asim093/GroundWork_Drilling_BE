@@ -1,12 +1,11 @@
 import User from '../models/User.js';
 import Job from '../models/Job.js';
 import TimeLogEntry from '../models/TimeLogEntry.js';
-import BonusConfig from '../models/BonusConfig.js';
 import {
   resolveDateRange,
   monthLabel,
   computeSchedulingRows,
-  buildTotals
+  buildPeriodSummary
 } from '../utils/reporting.js';
 
 const JOB_STATUSES = ['scheduled', 'in-progress', 'submitted', 'archived'];
@@ -96,19 +95,18 @@ const adminDashboard = async () => {
       .lean()
   ]);
 
-  const [jobEntries, bonusConfig] = await Promise.all([
-    TimeLogEntry.find({ jobId: { $in: scheduledJobs.map((job) => job._id) } })
-      .select('jobId date shift status')
-      .lean(),
-    BonusConfig.getSingleton()
-  ]);
+  const jobEntries = await TimeLogEntry.find({
+    jobId: { $in: scheduledJobs.map((job) => job._id) }
+  })
+    .select('jobId date shift status')
+    .lean();
   const schedulingRows = computeSchedulingRows(scheduledJobs, jobEntries);
   const schedulingCounts = { submitted: 0, draft: 0, missing: 0 };
   schedulingRows.forEach((row) => {
     schedulingCounts[row.status] += 1;
   });
 
-  const totals = buildTotals(monthEntries, bonusConfig.recoveryThreshold);
+  const summary = buildPeriodSummary(monthEntries);
 
   return {
     role: 'admin',
@@ -120,8 +118,7 @@ const adminDashboard = async () => {
       to,
       scheduling: schedulingCounts,
       timeLogs: { submitted: monthEntries.length, draft: monthDraftCount },
-      totals: totals.totals,
-      bonusEligibility: totals.bonusEligibility
+      totals: summary.totals
     },
     submissionActivity: buildDailyActivity(activityEntries),
     recentSubmissions: recent.map(recentEntryShape)
@@ -131,45 +128,36 @@ const adminDashboard = async () => {
 const operatorDashboard = async (userId) => {
   const { from, to } = resolveDateRange({});
 
-  const [
-    assignedJobs,
-    myDraft,
-    mySubmitted,
-    monthSubmitted,
-    monthEntries,
-    recent,
-    activityEntries,
-    bonusConfig
-  ] = await Promise.all([
-    Job.find({ assignedUserIds: userId, status: { $in: ['scheduled', 'in-progress'] } })
-      .select('status')
-      .lean(),
-    TimeLogEntry.countDocuments({ userId, status: 'draft' }),
-    TimeLogEntry.countDocuments({ userId, status: 'submitted' }),
-    TimeLogEntry.countDocuments({
-      userId,
-      status: 'submitted',
-      date: { $gte: from, $lte: to }
-    }),
-    TimeLogEntry.find({ userId, status: 'submitted', date: { $gte: from, $lte: to } }).lean(),
-    TimeLogEntry.find({ userId })
-      .sort({ updatedAt: -1 })
-      .limit(5)
-      .populate('jobId', 'jobNumber clientName')
-      .populate('userId', 'name'),
-    TimeLogEntry.find({ userId, status: 'submitted', updatedAt: { $gte: activityWindowStart() } })
-      .select('updatedAt')
-      .lean(),
-    BonusConfig.getSingleton()
-  ]);
+  const [assignedJobs, myDraft, mySubmitted, monthSubmitted, monthEntries, recent, activityEntries] =
+    await Promise.all([
+      Job.find({ assignedUserIds: userId, status: { $in: ['scheduled', 'in-progress'] } })
+        .select('status')
+        .lean(),
+      TimeLogEntry.countDocuments({ userId, status: 'draft' }),
+      TimeLogEntry.countDocuments({ userId, status: 'submitted' }),
+      TimeLogEntry.countDocuments({
+        userId,
+        status: 'submitted',
+        date: { $gte: from, $lte: to }
+      }),
+      TimeLogEntry.find({ userId, status: 'submitted', date: { $gte: from, $lte: to } }).lean(),
+      TimeLogEntry.find({ userId })
+        .sort({ updatedAt: -1 })
+        .limit(5)
+        .populate('jobId', 'jobNumber clientName')
+        .populate('userId', 'name'),
+      TimeLogEntry.find({ userId, status: 'submitted', updatedAt: { $gte: activityWindowStart() } })
+        .select('updatedAt')
+        .lean()
+    ]);
 
-  const totals = buildTotals(monthEntries, bonusConfig.recoveryThreshold);
+  const summary = buildPeriodSummary(monthEntries);
 
   return {
     role: 'operator',
     assignedJobs: { total: assignedJobs.length, byStatus: countByStatus(assignedJobs) },
     myTimeLogs: { draft: myDraft, submitted: mySubmitted, thisMonthSubmitted: monthSubmitted },
-    thisMonth: { label: monthLabel(from), from, to, totals: totals.totals },
+    thisMonth: { label: monthLabel(from), from, to, totals: summary.totals },
     submissionActivity: buildDailyActivity(activityEntries),
     recentEntries: recent.map(recentEntryShape)
   };

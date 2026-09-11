@@ -22,8 +22,6 @@ export const SEED_EMPLOYEES = [
 
 export const SHIFTS = ['Day', 'Night'];
 
-export const RATE_TYPES = ['flat', 'perMeter'];
-
 export const SEED_LOCATIONS = [
   'Lower Antino',
   'Froyo',
@@ -215,34 +213,3 @@ export const SEED_ACTIVITIES = [
   { activity: 'Demobilization from site', category: 'Other' }
 ];
 
-export const SEED_BONUS_CONFIG = {
-  recoveryThreshold: 85,
-  tierTables: [
-    {
-      employeeType: 'Supervisor',
-      bands: [
-        { fromMeters: 0, toMeters: 6000, rateType: 'flat', value: 750 },
-        { fromMeters: 6001, toMeters: 7000, rateType: 'flat', value: 1000 },
-        { fromMeters: 7001, toMeters: 1000000, rateType: 'flat', value: 1500 }
-      ]
-    },
-    {
-      employeeType: 'Driller',
-      bands: [
-        { fromMeters: 0, toMeters: 700, rateType: 'perMeter', value: 0.9 },
-        { fromMeters: 701, toMeters: 1000, rateType: 'perMeter', value: 1.1 },
-        { fromMeters: 1001, toMeters: 1500, rateType: 'perMeter', value: 1.5 },
-        { fromMeters: 1501, toMeters: 1000000, rateType: 'perMeter', value: 3 }
-      ]
-    },
-    {
-      employeeType: 'Helper',
-      bands: [
-        { fromMeters: 0, toMeters: 700, rateType: 'perMeter', value: 0.5 },
-        { fromMeters: 701, toMeters: 1000, rateType: 'perMeter', value: 0.7 },
-        { fromMeters: 1001, toMeters: 1500, rateType: 'perMeter', value: 1 },
-        { fromMeters: 1501, toMeters: 1000000, rateType: 'perMeter', value: 1.5 }
-      ]
-    }
-  ]
-};
