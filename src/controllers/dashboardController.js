@@ -207,7 +207,7 @@ const adminAttention = async () => {
       type: 'pending-invite',
       title: `${operator.name} hasn't accepted their invite`,
       subtitle: operator.email,
-      to: '/admin/users'
+      to: '/admin/employees'
     }))
   ];
 };

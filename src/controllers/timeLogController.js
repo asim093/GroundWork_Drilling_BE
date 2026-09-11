@@ -228,12 +228,14 @@ export const updateTimeLog = async (req, res) => {
     return;
   }
 
-  if (!entry.userId.equals(req.user.id)) {
+  const isAdmin = req.user.role === 'admin';
+
+  if (!isAdmin && !entry.userId.equals(req.user.id)) {
     res.status(403).json({ message: 'You can only edit your own time logs' });
     return;
   }
 
-  if (entry.status === 'submitted') {
+  if (!isAdmin && entry.status === 'submitted') {
     res.status(409).json({ message: 'This time log has been submitted and can no longer be edited' });
     return;
   }
