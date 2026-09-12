@@ -54,6 +54,22 @@ export const getInvite = async (req, res) => {
   res.json({ data: { name: user.name, email: user.email } });
 };
 
+export const changePassword = async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+
+  const user = await User.findById(req.user.id).select('+password');
+
+  if (!user || !(await user.comparePassword(currentPassword))) {
+    res.status(401).json({ message: 'Current password is incorrect' });
+    return;
+  }
+
+  user.password = newPassword;
+  await user.save();
+
+  res.json({ message: 'Password updated' });
+};
+
 export const acceptInvite = async (req, res) => {
   const { token, password } = req.body;
 

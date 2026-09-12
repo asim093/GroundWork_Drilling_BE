@@ -1,6 +1,12 @@
 import { Router } from 'express';
 import { body, query } from 'express-validator';
-import { login, getCurrentUser, getInvite, acceptInvite } from '../controllers/authController.js';
+import {
+  login,
+  getCurrentUser,
+  getInvite,
+  acceptInvite,
+  changePassword
+} from '../controllers/authController.js';
 import { validate } from '../middleware/validate.js';
 import { authenticate } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -30,6 +36,15 @@ router.post(
   body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
   validate,
   asyncHandler(acceptInvite)
+);
+
+router.post(
+  '/change-password',
+  authenticate,
+  body('currentPassword').notEmpty().withMessage('Current password is required'),
+  body('newPassword').isLength({ min: 8 }).withMessage('New password must be at least 8 characters'),
+  validate,
+  asyncHandler(changePassword)
 );
 
 export default router;

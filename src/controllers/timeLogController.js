@@ -314,6 +314,14 @@ const buildEntryFilter = async (query) => {
 const filterByClientName = (entries, clientName) =>
   clientName ? entries.filter((entry) => entry.jobId?.clientName === clientName) : entries;
 
+/**
+ * The `employee` filter narrows which shifts count (any shift that employee worked),
+ * but a shift can have other crew members too. When a single employee is requested,
+ * only that employee's own row should come back, not their shift co-workers.
+ */
+const filterEmployeeRows = (employees, employeeId) =>
+  employeeId ? employees.filter((row) => row.employeeId === String(employeeId)) : employees;
+
 export const reportsHours = async (req, res) => {
   const { from, to } = resolveDateRange(req.query);
   const extra = await buildEntryFilter(req.query);
@@ -323,7 +331,7 @@ export const reportsHours = async (req, res) => {
 
   const data = { from, to, scope, entryCount: entries.length };
   if (scope === 'employee') {
-    data.employees = buildEmployeeHoursReport(entries);
+    data.employees = filterEmployeeRows(buildEmployeeHoursReport(entries), req.query.employee);
   } else if (scope === 'manager') {
     data.managers = buildManagerHoursReport(entries);
   } else {
@@ -391,7 +399,7 @@ export const reportsHoursExport = async (req, res) => {
 
   const report = { scope };
   if (scope === 'employee') {
-    report.employees = buildEmployeeHoursReport(entries);
+    report.employees = filterEmployeeRows(buildEmployeeHoursReport(entries), req.query.employee);
   } else if (scope === 'manager') {
     report.managers = buildManagerHoursReport(entries);
   } else {
